@@ -1,5 +1,4 @@
-// Dooray Calendar API Proxy v3 - Wildcard Diagnostic
-var DOORAY_BASE = "https://api.dooray.com";
+// Dooray Calendar API Proxy v3.1 - Wildcard Diagnosticvar DOORAY_BASE = "https://api.dooray.com";
 
 module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
