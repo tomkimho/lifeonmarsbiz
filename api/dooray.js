@@ -46,38 +46,43 @@ module.exports = async function handler(req, res) {
       // Pattern 1: /calendar/v1/calendars/{id}/events with fromDate/toDate
       var urls = [
         {
-          name: "p1_events_fromDate",
-          url: DOORAY_BASE + "/calendar/v1/calendars/" + cid + "/events?fromDate=" + from + "T00:00:00%2B09:00&toDate=" + to + "T23:59:59%2B09:00"
+          name: "p1_wildcard",
+          url: DOORAY_BASE + "/calendar/v1/calendars/*/events?calendarIds=" + cid + "&fromDate=" + from + "T00:00:00%2B09:00&toDate=" + to + "T23:59:59%2B09:00"
         },
         {
-          name: "p2_events_from_to",
-          url: DOORAY_BASE + "/calendar/v1/calendars/" + cid + "/events?from=" + from + "T00:00:00%2B09:00&to=" + to + "T23:59:59%2B09:00"
+          name: "p2_wildcard_no_filter",
+          url: DOORAY_BASE + "/calendar/v1/calendars/*/events?fromDate=" + from + "T00:00:00%2B09:00&toDate=" + to + "T23:59:59%2B09:00"
         },
         {
-          name: "p3_schedules",
-          url: DOORAY_BASE + "/calendar/v1/calendars/" + cid + "/schedules?fromDate=" + from + "T00:00:00%2B09:00&toDate=" + to + "T23:59:59%2B09:00"
+          name: "p3_wildcard_memberid",
+          url: DOORAY_BASE + "/calendar/v1/calendars/*/events?memberIds=" + (memberId || "") + "&fromDate=" + from + "T00:00:00%2B09:00&toDate=" + to + "T23:59:59%2B09:00"
         },
         {
-          name: "p4_events_notz",
-          url: DOORAY_BASE + "/calendar/v1/calendars/" + cid + "/events?fromDate=" + from + "&toDate=" + to
+          name: "p4_wildcard_plain",
+          url: DOORAY_BASE + "/calendar/v1/calendars/*/events"
         },
         {
-          name: "p5_events_plain",
-          url: DOORAY_BASE + "/calendar/v1/calendars/" + cid + "/events"
+          name: "p5_wildcard_schedules",
+          url: DOORAY_BASE + "/calendar/v1/calendars/*/schedules?calendarIds=" + cid + "&fromDate=" + from + "T00:00:00%2B09:00&toDate=" + to + "T23:59:59%2B09:00"
         },
         {
-          name: "p6_calendar_schedules",
-          url: DOORAY_BASE + "/calendar/v1/schedules?calendarId=" + cid + "&fromDate=" + from + "T00:00:00%2B09:00&toDate=" + to + "T23:59:59%2B09:00"
+          name: "p6_member_events",
+          url: DOORAY_BASE + "/calendar/v1/members/me/events?fromDate=" + from + "T00:00:00%2B09:00&toDate=" + to + "T23:59:59%2B09:00"
         },
         {
-          name: "p7_member_schedules",
-          url: DOORAY_BASE + "/calendar/v1/calendars/" + cid + "/schedules?from=" + from + "&to=" + to
+          name: "p7_wildcard_notz",
+          url: DOORAY_BASE + "/calendar/v1/calendars/*/events?calendarIds=" + cid + "&fromDate=" + from + "&toDate=" + to
         },
         {
-          name: "p8_calendar_events_v2",
-          url: DOORAY_BASE + "/calendar/v2/calendars/" + cid + "/events?fromDate=" + from + "&toDate=" + to
+          name: "p8_wildcard_schedules2",
+          url: DOORAY_BASE + "/calendar/v1/calendars/*/schedules?fromDate=" + from + "T00:00:00%2B09:00&toDate=" + to + "T23:59:59%2B09:00"
         }
       ];
+```
+
+**Commit** → 1-2분 후 다시:
+```
+https://lifeonmarsbiz.vercel.app/api/dooray?action=diag
 
       for (var i = 0; i < urls.length; i++) {
         try {
