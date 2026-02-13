@@ -298,29 +298,35 @@ function Calendar({currentDate,selectedDate,onSelectDate,events,onMonthChange,on
 }
 
 // ─── Event Card (mobile optimized) ───
-function EventCard({ev,onEdit,onShare}){
+function EventCard({ev,onEdit,onShare,isPast,isChecked,onToggleCheck}){
   const p=PRI[ev.priority]||PRI.medium;
   const isDooray=ev.source==="dooray";
   const isMultiDay=ev.endDate&&ev.endDate!==ev.date;
-  const isOngoing=ev.date<=TODAY&&(ev.endDate||ev.date)>=TODAY;
+  const isOngoing=ev.date<=TODAY&&(ev.endDate||ev.date)>=TODAY&&!isPast;
+  const grayOut=isPast&&!isChecked;
   return(
-    <div style={{background:"#fff",borderRadius:12,padding:"10px 12px",borderLeft:`4px solid ${isDooray?"#3E6FE0":p.dot}`,boxShadow:"0 1px 3px rgba(0,0,0,0.04)",cursor:"pointer"}} onClick={()=>onEdit(ev)}>
+    <div style={{background:isChecked?"#F1F5F9":grayOut?"#F8FAFC":"#fff",borderRadius:12,padding:"10px 12px",borderLeft:`4px solid ${isChecked?"#CBD5E1":grayOut?"#CBD5E1":isDooray?"#3E6FE0":p.dot}`,boxShadow:"0 1px 3px rgba(0,0,0,0.04)",cursor:"pointer",opacity:isChecked?0.5:grayOut?0.65:1,transition:"all 0.2s"}}>
       <div style={{display:"flex",alignItems:"flex-start",gap:6}}>
+        {/* Checkbox */}
+        <button onClick={e=>{e.stopPropagation();onToggleCheck&&onToggleCheck(ev.id);}} style={{width:20,height:20,borderRadius:5,border:`2px solid ${isChecked?"#10B981":"#CBD5E1"}`,background:isChecked?"#10B981":"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:11,flexShrink:0,marginTop:2}}>
+          {isChecked&&"✓"}
+        </button>
         <span style={{fontSize:14,flexShrink:0,marginTop:1}}>{CAT[ev.category]?.i||"📅"}</span>
-        <div style={{flex:1,minWidth:0}}>
+        <div style={{flex:1,minWidth:0}} onClick={()=>onEdit(ev)}>
           <div style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap"}}>
-            <span style={{fontWeight:600,fontSize:13,color:"#1E293B",wordBreak:"keep-all",lineHeight:1.4}}>{ev.title}</span>
+            <span style={{fontWeight:600,fontSize:13,color:grayOut||isChecked?"#94A3B8":"#1E293B",wordBreak:"keep-all",lineHeight:1.4,textDecoration:isChecked?"line-through":"none"}}>{ev.title}</span>
+            {isPast&&!isChecked&&<span style={{fontSize:9,background:"#F1F5F9",color:"#94A3B8",borderRadius:4,padding:"1px 4px",fontWeight:700,flexShrink:0}}>완료</span>}
             {isOngoing&&<span style={{fontSize:9,background:"#DCFCE7",color:"#16A34A",borderRadius:4,padding:"1px 4px",fontWeight:700,flexShrink:0}}>진행중</span>}
             {isDooray&&<span style={{fontSize:9,background:"#DBEAFE",color:"#3E6FE0",borderRadius:4,padding:"1px 4px",fontWeight:700,flexShrink:0}}>두레이</span>}
           </div>
           <div style={{display:"flex",alignItems:"center",gap:4,marginTop:3,flexWrap:"wrap"}}>
             {ev.time&&<span style={{fontSize:11,color:"#94A3B8",fontWeight:500}}>{ev.time}{ev.endTime?`-${ev.endTime}`:""}</span>}
-            {isMultiDay&&<span style={{fontSize:10,color:"#3B82F6",fontWeight:500}}>📅 {ev.date} ~ {ev.endDate}</span>}
+            {isMultiDay&&<span style={{fontSize:10,color:grayOut?"#94A3B8":"#3B82F6",fontWeight:500}}>📅 {ev.date} ~ {ev.endDate}</span>}
             {ev.calendarName&&<span style={{fontSize:9,color:"#94A3B8"}}>· {ev.calendarName}</span>}
           </div>
-          {ev.company&&<div style={{fontSize:11,color:"#64748B",marginTop:2}}>🏢 {ev.company}</div>}
-          {ev.location&&<div style={{fontSize:11,color:"#64748B",marginTop:1}}>📍 {ev.location}</div>}
-          {ev.attendees&&<div style={{fontSize:11,color:"#64748B",marginTop:1}}>👥 {ev.attendees}</div>}
+          {ev.attendees&&<div style={{fontSize:11,color:grayOut?"#B0B8C4":"#2563EB",marginTop:2,fontWeight:500}}>👥 {ev.attendees}</div>}
+          {ev.company&&<div style={{fontSize:11,color:grayOut?"#B0B8C4":"#64748B",marginTop:1}}>🏢 {ev.company}</div>}
+          {ev.location&&<div style={{fontSize:11,color:grayOut?"#B0B8C4":"#64748B",marginTop:1}}>📍 {ev.location}</div>}
         </div>
         <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2,flexShrink:0}}>
           {ev.alarm>=0&&<span style={{fontSize:8,background:"#DBEAFE",color:"#2563EB",borderRadius:3,padding:"0px 3px",fontWeight:600}}>⏰</span>}
@@ -506,6 +512,8 @@ function BizPlanner(){
   const[search,setSearch]=useState("");const[todoFilt,setTodoFilt]=useState("all");const[memoFilt,setMemoFilt]=useState("all");
   const[todoSort,setTodoSort]=useState("priority");const[syncSt,setSyncSt]=useState("idle");const[globalSearch,setGlobalSearch]=useState(false);
   const[doorayStatus,setDoorayStatus]=useState(null);const[lastSync,setLastSync]=useState(null);
+  const[checkedEvs,setCheckedEvs]=useState(()=>{try{return JSON.parse(localStorage.getItem("bp-checked-evs")||"[]");}catch{return[];}});
+  const[showChecked,setShowChecked]=useState(false);
   const syncRef=useRef(null);
 
   // ─── Dooray Sync ───
@@ -603,6 +611,32 @@ function BizPlanner(){
 
   const persist=useCallback((k,d,s)=>{s(d);sv(k,d);},[]);
 
+  // ─── Check/uncheck event ───
+  const toggleCheck=useCallback((evId)=>{
+    setCheckedEvs(prev=>{
+      const next=prev.includes(evId)?prev.filter(id=>id!==evId):[...prev,evId];
+      localStorage.setItem("bp-checked-evs",JSON.stringify(next));
+      return next;
+    });
+  },[]);
+
+  // ─── Dedup events by title+date+time ───
+  const dedup=(evList)=>{
+    const map=new Map();
+    evList.forEach(ev=>{
+      const key=`${ev.title?.trim()}|${ev.date}|${ev.time||""}`;
+      const existing=map.get(key);
+      if(!existing){map.set(key,ev);}
+      else{
+        // Keep the one with more info (attendees, location, etc.)
+        const score=(e)=>(e.attendees?1:0)+(e.location?1:0)+(e.memo?1:0)+(e.company?1:0)+(e.calendarName?1:0);
+        if(score(ev)>score(existing)) map.set(key,{...ev,attendees:ev.attendees||existing.attendees});
+        else if(existing.attendees||ev.attendees) map.set(key,{...existing,attendees:existing.attendees||ev.attendees});
+      }
+    });
+    return Array.from(map.values());
+  };
+
   // ─── Event CRUD with Dooray sync ───
   const saveEv=async(ev)=>{
     const isDooray = ev.source==="dooray";
@@ -641,11 +675,24 @@ function BizPlanner(){
 
   // ─── Filters ───
   const tabSearch=globalSearch?"":search;
-  const dayEvs=events.filter(e=>{
+  // Helper: is event's end time in the past?
+  const isEvPast=(ev)=>{
+    const now=new Date();
+    if(!ev.date)return false;
+    const evDate=pD(ev.endDate||ev.date);
+    if(ev.endTime){const[h,m]=(ev.endTime).split(":").map(Number);evDate.setHours(h,m,0,0);}
+    else if(ev.time){const[h,m]=(ev.time).split(":").map(Number);evDate.setHours(h,m+30,0,0);}
+    else{evDate.setHours(23,59,59);}
+    return now>evDate;
+  };
+  const dayEvs=dedup(events.filter(e=>{
     if(e.date===selDate) return true;
     if(e.endDate && e.date<=selDate && e.endDate>=selDate) return true;
     return false;
-  }).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
+  })).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
+  // Split into visible (unchecked) and checked
+  const dayEvsVisible=dayEvs.filter(e=>!checkedEvs.includes(e.id));
+  const dayEvsChecked=dayEvs.filter(e=>checkedEvs.includes(e.id));
   const fTodos=todos.filter(t=>todoFilt==="active"?!t.completed:todoFilt==="completed"?t.completed:true)
     .filter(t=>!tabSearch||t.title.toLowerCase().includes(tabSearch.toLowerCase()))
     .sort((a,b)=>{
@@ -654,7 +701,7 @@ function BizPlanner(){
       return 0;
     });
   const fMemos=memos.filter(m=>memoFilt!=="all"?m.type===memoFilt:true).filter(m=>!tabSearch||m.title.toLowerCase().includes(tabSearch.toLowerCase())||m.content?.toLowerCase().includes(tabSearch.toLowerCase())).sort((a,b)=>b.date.localeCompare(a.date));
-  const upcoming=events.filter(e=>e.date>=TODAY).sort((a,b)=>a.date.localeCompare(b.date)||(a.time||"").localeCompare(b.time||"")).slice(0,8);
+  const upcoming=dedup(events.filter(e=>e.date>TODAY)).sort((a,b)=>a.date.localeCompare(b.date)||(a.time||"").localeCompare(b.time||"")).slice(0,8);
   const selDO=pD(selDate);const dateLbl=`${selDO.getMonth()+1}월 ${selDO.getDate()}일 (${DAYS_KR[selDO.getDay()]})`;
   const activeTd=todos.filter(t=>!t.completed).length;
 
@@ -743,22 +790,39 @@ function BizPlanner(){
           {/* Day Events */}
           <div style={{marginTop:14}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-              <h3 style={{margin:0,fontSize:15,fontWeight:700,color:"#1E293B",wordBreak:"keep-all"}}>{dateLbl}{dayEvs.length>0&&<span style={{fontSize:11,color:"#94A3B8",fontWeight:400}}> ({dayEvs.length}건)</span>}</h3>
+              <h3 style={{margin:0,fontSize:15,fontWeight:700,color:"#1E293B",wordBreak:"keep-all"}}>{dateLbl}{dayEvs.length>0&&<span style={{fontSize:11,color:"#94A3B8",fontWeight:400}}> ({dayEvsVisible.length}건{dayEvsChecked.length>0?` · ✓${dayEvsChecked.length}`:""}{dayEvs.filter(e=>isEvPast(e)&&!checkedEvs.includes(e.id)).length>0?` · 완료${dayEvs.filter(e=>isEvPast(e)&&!checkedEvs.includes(e.id)).length}`:""})</span>}</h3>
+              {dayEvsChecked.length>0&&<button onClick={()=>setShowChecked(!showChecked)} style={{fontSize:10,padding:"3px 8px",borderRadius:6,border:"1px solid #E2E8F0",background:showChecked?"#1E293B":"#F8FAFC",color:showChecked?"#fff":"#64748B",fontWeight:600,cursor:"pointer"}}>
+                {showChecked?"✓ 숨기기":`✓ ${dayEvsChecked.length}건 보기`}
+              </button>}
             </div>
-            {dayEvs.length===0?<div style={{textAlign:"center",padding:"24px 0",color:"#94A3B8"}}>
+            {dayEvsVisible.length===0&&dayEvsChecked.length===0?<div style={{textAlign:"center",padding:"24px 0",color:"#94A3B8"}}>
               <div style={{fontSize:24,marginBottom:4}}>🌤</div>
               <div style={{fontSize:13}}>일정이 없습니다</div>
               {(()=>{const next=events.filter(e=>e.date>selDate).sort((a,b)=>a.date.localeCompare(b.date))[0];
                 return next?<div style={{fontSize:11,marginTop:5,color:"#3B82F6",cursor:"pointer"}} onClick={()=>setSelDate(next.date)}>다음: {next.date} — {next.title} →</div>:null;})()}
             </div>
-            :<div style={{display:"flex",flexDirection:"column",gap:6}}>
-              {dayEvs.map(ev=><EventCard key={ev.id} ev={ev} onEdit={e=>{setEditEv(e);setShowEF(true);}} onShare={setShareItem}/>)}
-            </div>}
+            :<>
+              {dayEvsVisible.length===0&&<div style={{textAlign:"center",padding:"12px 0",color:"#94A3B8",fontSize:12}}>모든 일정이 체크됨</div>}
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {dayEvsVisible.map(ev=><EventCard key={ev.id} ev={ev} isPast={isEvPast(ev)} isChecked={false} onToggleCheck={toggleCheck} onEdit={e=>{setEditEv(e);setShowEF(true);}} onShare={setShareItem}/>)}
+              </div>
+              {/* Checked events (hidden by default) */}
+              {showChecked&&dayEvsChecked.length>0&&<>
+                <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",margin:"10px 0 4px",display:"flex",alignItems:"center",gap:6}}>
+                  <div style={{flex:1,height:1,background:"#E2E8F0"}}/>
+                  <span>✓ 체크된 일정 ({dayEvsChecked.length})</span>
+                  <div style={{flex:1,height:1,background:"#E2E8F0"}}/>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                  {dayEvsChecked.map(ev=><EventCard key={ev.id} ev={ev} isPast={isEvPast(ev)} isChecked={true} onToggleCheck={toggleCheck} onEdit={e=>{setEditEv(e);setShowEF(true);}} onShare={setShareItem}/>)}
+                </div>
+              </>}
+            </>}
           </div>
 
-          {/* Upcoming */}
+          {/* Upcoming (tomorrow+) */}
           {upcoming.length>0&&<div style={{marginTop:16}}>
-            <h3 style={{margin:"0 0 6px",fontSize:14,fontWeight:700,color:"#1E293B"}}>📌 다가오는 일정</h3>
+            <h3 style={{margin:"0 0 6px",fontSize:14,fontWeight:700,color:"#1E293B"}}>📌 다가오는 일정 (내일~)</h3>
             <div style={{display:"flex",flexDirection:"column",gap:4}}>
               {upcoming.map(ev=>{const d=pD(ev.date);const isDooray=ev.source==="dooray";const isMulti=ev.endDate&&ev.endDate!==ev.date;return(
                 <div key={ev.id+ev.date} onClick={()=>{setSelDate(ev.date);setEditEv(ev);setShowEF(true);}} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:"#fff",borderRadius:10,cursor:"pointer",boxShadow:"0 1px 2px rgba(0,0,0,0.03)"}}>
@@ -774,6 +838,7 @@ function BizPlanner(){
                       {ev.location&&<span>· {ev.location}</span>}
                       {isMulti&&<span style={{color:"#3B82F6"}}>~{ev.endDate}</span>}
                     </div>
+                    {ev.attendees&&<div style={{fontSize:10,color:"#2563EB",marginTop:1}}>👥 {ev.attendees}</div>}
                   </div>
                   <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2,flexShrink:0}}>
                     <div style={{width:6,height:6,borderRadius:"50%",background:isDooray?"#3E6FE0":PRI[ev.priority]?.dot||"#94A3B8"}}/>
