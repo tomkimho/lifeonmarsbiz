@@ -1,967 +1,913 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>BizPlanner - Smart Business Planner</title>
-<meta name="description" content="일정, 할일, 메모, 연락처를 한곳에서 관리하세요">
-<meta name="theme-color" content="#0F172A">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📅</text></svg>">
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
-<style>
-*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;margin:0;padding:0}
-body{font-family:'Noto Sans KR',sans-serif;background:#F1F5F9;overflow-x:hidden}
-input,select,textarea,button{font-family:'Noto Sans KR',sans-serif}
-::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:4px}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
-@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-@keyframes slideUp{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:translateY(0)}}
-.sr:hover{background:#F1F5F9!important}
-.card:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,0.08)!important}
-@media(max-width:480px){input,textarea,select{font-size:16px!important}}
-.multi-bar{position:absolute;height:5px;border-radius:3px;z-index:2;top:0;cursor:pointer}
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>BizPlanner - Smart Business Planner</title>
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0F172A">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📅</text></svg>">
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; }
+    body { font-family: 'Noto Sans KR', -apple-system, sans-serif; overflow-x: hidden; }
+  </style>
 </head>
 <body>
-<div id="root"></div>
-<script type="text/babel">
-const {useState,useEffect,useCallback,useRef,useMemo}=React;
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useCallback, useRef } = React;
+
+
 
 // ─── Constants ───
-const DAYS=["일","월","화","수","목","금","토"];
-const MOS=["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"];
-const PRI={high:{bg:"#FEE2E2",text:"#DC2626",dot:"#EF4444",label:"상"},medium:{bg:"#FFF7ED",text:"#EA580C",dot:"#F97316",label:"중"},low:{bg:"#EFF6FF",text:"#2563EB",dot:"#3B82F6",label:"하"}};
-const CAT={meeting:{i:"🤝",l:"미팅"},call:{i:"📞",l:"통화"},task:{i:"📋",l:"업무"},travel:{i:"✈️",l:"출장"},personal:{i:"👤",l:"개인"},deadline:{i:"⏰",l:"마감"}};
-const MT={free:{icon:"📝",label:"자유 메모",color:"#6366F1"},schedule:{icon:"📅",label:"일정 메모",color:"#0EA5E9"},meeting:{icon:"🤝",label:"회의록",color:"#10B981"},idea:{icon:"💡",label:"아이디어",color:"#F59E0B"},diary:{icon:"📔",label:"일기",color:"#EC4899"}};
-const ALARMS=[{v:0,l:"정시"},{v:5,l:"5분 전"},{v:10,l:"10분 전"},{v:15,l:"15분 전"},{v:30,l:"30분 전"},{v:60,l:"1시간 전"},{v:1440,l:"1일 전"}];
-const TCATS=["업무","개인","프로젝트","연구","기타"];
-const uid=()=>Date.now().toString(36)+Math.random().toString(36).substr(2,9);
-const fmt=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-const pD=s=>{const[y,m,d]=s.split("-").map(Number);return new Date(y,m-1,d);};
-const dBtw=(a,b)=>Math.floor((pD(b)-pD(a))/864e5);
-const getNow=()=>new Date();
-const TODAY=fmt(new Date());
-
-// ─── Korean Holidays (2025-2027) ───
-const HOLIDAYS={
-  "2025-01-01":"새해","2025-01-28":"설날 연휴","2025-01-29":"설날","2025-01-30":"설날 연휴",
-  "2025-03-01":"삼일절","2025-05-05":"어린이날","2025-05-06":"대체공휴일",
-  "2025-05-15":"부처님오신날","2025-06-06":"현충일","2025-08-15":"광복절",
-  "2025-10-03":"개천절","2025-10-05":"추석 연휴","2025-10-06":"추석","2025-10-07":"추석 연휴",
-  "2025-10-08":"대체공휴일","2025-10-09":"한글날","2025-12-25":"성탄절",
-  "2026-01-01":"새해","2026-02-16":"설날 연휴","2026-02-17":"설날","2026-02-18":"설날 연휴",
-  "2026-03-01":"삼일절","2026-03-02":"대체공휴일","2026-05-05":"어린이날",
-  "2026-05-24":"부처님오신날","2026-06-06":"현충일","2026-08-15":"광복절",
-  "2026-08-17":"대체공휴일","2026-09-24":"추석 연휴","2026-09-25":"추석","2026-09-26":"추석 연휴",
-  "2026-10-03":"개천절","2026-10-09":"한글날","2026-12-25":"성탄절",
-  "2027-01-01":"새해","2027-02-06":"설날 연휴","2027-02-07":"설날","2027-02-08":"설날 연휴",
-  "2027-02-09":"대체공휴일","2027-03-01":"삼일절","2027-05-05":"어린이날",
-  "2027-05-13":"부처님오신날","2027-06-06":"현충일","2027-08-15":"광복절",
-  "2027-08-16":"대체공휴일","2027-10-03":"개천절","2027-10-09":"한글날",
-  "2027-10-14":"추석 연휴","2027-10-15":"추석","2027-10-16":"추석 연휴","2027-12-25":"성탄절"
+const DAYS_KR = ["일","월","화","수","목","금","토"];
+const MONTHS_KR = ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"];
+const PRI = { high:{bg:"#FEE2E2",text:"#DC2626",dot:"#EF4444",label:"상"}, medium:{bg:"#FFF7ED",text:"#EA580C",dot:"#F97316",label:"중"}, low:{bg:"#EFF6FF",text:"#2563EB",dot:"#3B82F6",label:"하"} };
+const CAT = { meeting:{i:"🤝",l:"미팅"}, call:{i:"📞",l:"통화"}, task:{i:"📋",l:"업무"}, travel:{i:"✈️",l:"출장"}, personal:{i:"👤",l:"개인"}, deadline:{i:"⏰",l:"마감"} };
+const MEMO_T = {
+  free:{icon:"📝",label:"자유 메모",color:"#6366F1"}, schedule:{icon:"📅",label:"일정 메모",color:"#0EA5E9"},
+  meeting:{icon:"🤝",label:"회의록",color:"#10B981"}, idea:{icon:"💡",label:"아이디어",color:"#F59E0B"}, diary:{icon:"📔",label:"일기",color:"#EC4899"},
 };
+const ALARM_OPTS = [{v:0,l:"정시"},{v:5,l:"5분 전"},{v:10,l:"10분 전"},{v:15,l:"15분 전"},{v:30,l:"30분 전"},{v:60,l:"1시간 전"},{v:1440,l:"1일 전"}];
+const TODO_CATS = ["업무","개인","프로젝트","연구","기타"];
+const DOORAY_API = "https://lifeonmarsbiz.vercel.app/api/dooray";
+const uid = () => Date.now().toString(36)+Math.random().toString(36).substr(2,9);
+const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const pD = s => { const[y,m,d]=s.split("-").map(Number); return new Date(y,m-1,d); };
+const dBtw = (a,b) => Math.floor((pD(b)-pD(a))/864e5);
+const TODAY = fmt(new Date());
 
-// ─── Time helpers ───
-function isEventPast(ev){
-  const now=getNow();
-  const endD=ev.endDate||ev.date;
-  const endT=ev.endTime||ev.time||"23:59";
-  const[h,m]=(endT).split(":").map(Number);
-  const end=new Date(pD(endD));end.setHours(h,m,0,0);
-  return now>end;
-}
-function isEventOngoing(ev){
-  const now=getNow();
-  const[sh,sm]=(ev.time||"00:00").split(":").map(Number);
-  const start=new Date(pD(ev.date));start.setHours(sh,sm,0,0);
-  const endD=ev.endDate||ev.date;
-  const[eh,em]=(ev.endTime||ev.time||"23:59").split(":").map(Number);
-  const end=new Date(pD(endD));end.setHours(eh,em,0,0);
-  return now>=start&&now<=end;
-}
-function eventDates(ev){
-  const s=ev.date;const e=ev.endDate||ev.date;
-  const dates=[];let cur=pD(s);const end=pD(e);
-  while(cur<=end){dates.push(fmt(cur));cur.setDate(cur.getDate()+1);}
-  return dates;
-}
-
-// ─── LocalStorage ───
+// ─── Storage ───
 function ld(k,fb){try{const r=localStorage.getItem(k);return r?JSON.parse(r):fb;}catch{return fb;}}
 function sv(k,d){try{localStorage.setItem(k,JSON.stringify(d));}catch(e){console.error(e);}}
 
-// ─── Share URL Helpers ───
-function encodeShare(item){
-  const d={t:item.title||"",d:item.date||"",ed:item.endDate||"",tm:item.time||"",et:item.endTime||"",l:item.location||"",a:item.attendees||"",m:item.memo||item.content||"",c:item.company||"",cat:item.category||"",dec:item.decisions||"",act:item.actionItems||"",type:item.type||""};
-  try{return btoa(unescape(encodeURIComponent(JSON.stringify(d))));}catch{return"";}
-}
-function decodeShare(hash){
-  try{return JSON.parse(decodeURIComponent(escape(atob(hash))));}catch{return null;}
-}
-
-// ─── ICS Export ───
-function toICS(event){
-  const dt=d=>(d||"").replace(/-/g,"");
-  const tm=t=>(t||"0000").replace(/:/g,"")+"00";
-  const now=new Date();const stamp=now.toISOString().replace(/[-:]/g,"").replace(/\.\d+/,"");
-  const sd=dt(event.date);const st=tm(event.time);
-  const ed=dt(event.endDate||event.date);const et=tm(event.endTime||event.time);
-  const u=event.id+"@bizplanner";
-  let desc=(event.memo||event.content||"").replace(/\n/g,"\\n");
-  if(event.attendees)desc=`참석자: ${event.attendees}\\n`+desc;
-  if(event.company)desc=`회사: ${event.company}\\n`+desc;
-  const lines=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//BizPlanner//KO","CALSCALE:GREGORIAN","METHOD:PUBLISH","BEGIN:VEVENT",
-    `DTSTART:${sd}T${st}`,`DTEND:${ed}T${et}`,`DTSTAMP:${stamp}`,`UID:${u}`,
-    `SUMMARY:${(event.title||"").replace(/,/g,"\\,")}`,
-    event.location?`LOCATION:${event.location.replace(/,/g,"\\,")}`:"",
-    desc?`DESCRIPTION:${desc}`:"",
-    event.alarm>=0?`BEGIN:VALARM\nTRIGGER:-PT${event.alarm||0}M\nACTION:DISPLAY\nDESCRIPTION:알림\nEND:VALARM`:"",
-    "END:VEVENT","END:VCALENDAR"].filter(Boolean);
-  return lines.join("\r\n");
-}
-function downloadICS(event){
-  const ics=toICS(event);const blob=new Blob([ics],{type:"text/calendar;charset=utf-8"});
-  const url=URL.createObjectURL(blob);const a=document.createElement("a");
-  a.href=url;a.download=`${(event.title||"일정").replace(/[^가-힣a-zA-Z0-9]/g,"_")}.ics`;a.click();URL.revokeObjectURL(url);
-}
-function downloadAllICS(events){
-  const lines=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//BizPlanner//KO","CALSCALE:GREGORIAN","METHOD:PUBLISH"];
-  const now=new Date();const stamp=now.toISOString().replace(/[-:]/g,"").replace(/\.\d+/,"");
-  events.forEach(ev=>{
-    const dt=d=>(d||"").replace(/-/g,"");const tm=t=>(t||"0000").replace(/:/g,"")+"00";
-    let desc=(ev.memo||"").replace(/\n/g,"\\n");
-    if(ev.attendees)desc=`참석자: ${ev.attendees}\\n`+desc;
-    if(ev.company)desc=`회사: ${ev.company}\\n`+desc;
-    lines.push("BEGIN:VEVENT",`DTSTART:${dt(ev.date)}T${tm(ev.time)}`,`DTEND:${dt(ev.endDate||ev.date)}T${tm(ev.endTime||ev.time)}`,
-      `DTSTAMP:${stamp}`,`UID:${ev.id}@bizplanner`,`SUMMARY:${(ev.title||"").replace(/,/g,"\\,")}`,
-      ev.location?`LOCATION:${ev.location.replace(/,/g,"\\,")}`:"",desc?`DESCRIPTION:${desc}`:"",
-      ev.alarm>=0?`BEGIN:VALARM\nTRIGGER:-PT${ev.alarm||0}M\nACTION:DISPLAY\nDESCRIPTION:알림\nEND:VALARM`:"",
-      "END:VEVENT");
-  });
-  lines.push("END:VCALENDAR");
-  const ics=lines.filter(Boolean).join("\r\n");const blob=new Blob([ics],{type:"text/calendar;charset=utf-8"});
-  const url=URL.createObjectURL(blob);const a=document.createElement("a");
-  a.href=url;a.download=`BizPlanner_${TODAY}_전체일정.ics`;a.click();URL.revokeObjectURL(url);
-}
-
-// ─── Dooray API Sync ───
-const DOORAY_API="/api/dooray";
-async function doorayFetch(action,params={},method="GET",body=null){
-  try{
-    const q=new URLSearchParams({action,...params}).toString();
-    const opts={method,headers:{"Content-Type":"application/json"}};
-    if(body)opts.body=JSON.stringify(body);
-    const r=await fetch(`${DOORAY_API}?${q}`,opts);
+// ─── Dooray API helpers ───
+async function doorayFetch(action, params={}){
+  try {
+    const qs = new URLSearchParams({action,...params}).toString();
+    const r = await fetch(`${DOORAY_API}?${qs}`);
+    if(!r.ok) return null;
     return await r.json();
-  }catch(e){return{error:e.message};}
+  } catch(e){ console.error("Dooray fetch error:",e); return null; }
 }
-async function doorayList(from,to){return doorayFetch("list",{from,to});}
-async function doorayCreate(ev){return doorayFetch("create",{},"POST",ev);}
-async function doorayUpdate(ev){return doorayFetch("update",{},"PUT",ev);}
-async function doorayDelete(id){return doorayFetch("delete",{doorayId:id},"DELETE");}
-async function doorayStatus(){return doorayFetch("status");}
-
-// ─── Dooray Sync Hook ───
-function useDooraySync(events,setEv){
-  const[dStatus,setDS]=useState(null);
-  const[dLoading,setDL]=useState(false);
-  const[dEvents,setDE]=useState([]);
-  const[lastSync,setLS]=useState(null);
-  const[dError,setDErr]=useState(null);
-
-  const checkConn=useCallback(async()=>{
-    setDL(true);
-    const r=await doorayStatus();
-    if(r.connected){setDS(true);setDErr(null);}
-    else{setDS(false);setDErr(r.error||"연결 실패");}
-    setDL(false);
-    return r.connected;
-  },[]);
-
-  const syncFromDooray=useCallback(async()=>{
-    setDL(true);
-    const today=new Date();const from=new Date(today);from.setMonth(from.getMonth()-1);
-    const to=new Date(today);to.setMonth(to.getMonth()+3);
-    const fmtD=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-    const r=await doorayList(fmtD(from),fmtD(to));
-    if(r.events){setDE(r.events);setLS(new Date().toLocaleTimeString());setDErr(null);}
-    else{setDErr(r.error||"동기화 실패");}
-    setDL(false);
-  },[]);
-
-  const pushToDooray=useCallback(async(ev)=>{
-    const r=await doorayCreate({title:ev.title,date:ev.date,endDate:ev.endDate,time:ev.time,endTime:ev.endTime,location:ev.location,memo:ev.memo,attendees:ev.attendees});
-    if(!r.error)await syncFromDooray();
-    return r;
-  },[syncFromDooray]);
-
-  useEffect(()=>{
-    checkConn().then(ok=>{if(ok)syncFromDooray();});
-    const interval=setInterval(()=>{if(dStatus)syncFromDooray();},60000);
-    return()=>clearInterval(interval);
-  },[]);
-
-  return{dStatus,dLoading,dEvents,lastSync,dError,checkConn,syncFromDooray,pushToDooray};
+async function doorayPost(action, body){
+  try {
+    const r = await fetch(`${DOORAY_API}?action=${action}`, {
+      method: action==="delete"?"DELETE":action==="update"?"PUT":"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(body)
+    });
+    return await r.json();
+  } catch(e){ console.error("Dooray post error:",e); return null; }
 }
 
-// ─── Contact Picker API ───
-async function pickPhoneContacts(){
-  if(!('contacts' in navigator && 'ContactsManager' in window)){
-    alert("이 브라우저에서는 연락처 연동을 지원하지 않습니다.\n\n📱 안드로이드 Chrome 브라우저에서만 지원됩니다.\n\niPhone은 Safari 제한으로 지원되지 않습니다.");
-    return null;
-  }
-  try{
-    const props=await navigator.contacts.getProperties();
-    const supported=props;
-    const contacts=await navigator.contacts.select(
-      supported.filter(p=>['name','tel','email'].includes(p)),
-      {multiple:true}
-    );
-    return contacts.map(c=>({
-      id:uid(),
-      name:(c.name&&c.name[0])||"",
-      phone:(c.tel&&c.tel[0])||"",
-      email:(c.email&&c.email[0])||"",
-      company:"",position:"",notes:"📱 휴대폰에서 가져옴"
-    })).filter(c=>c.name);
-  }catch(e){
-    if(e.name!=='TypeError')console.error(e);
-    return null;
-  }
-}
+// ─── Notification Helper ───
+function requestNotifPermission(){try{if("Notification"in window&&Notification.permission==="default")Notification.requestPermission();}catch{}}
+function showNotif(title,body){try{if("Notification"in window&&Notification.permission==="granted")new Notification(title,{body,icon:"📅"});}catch{}}
 
-// ─── Shared View (for recipients) ───
-function SharedView({data}){
-  const[copied,setCopied]=useState(false);
-  const lines=[];
-  if(data.t)lines.push(`📌 ${data.t}`);
-  if(data.d)lines.push(`📅 날짜: ${data.d}${data.ed?` ~ ${data.ed}`:""}`);
-  if(data.tm)lines.push(`⏰ 시간: ${data.tm}${data.et?` - ${data.et}`:""}`);
-  if(data.l)lines.push(`📍 장소: ${data.l}`);
-  if(data.c)lines.push(`🏢 회사: ${data.c}`);
-  if(data.a)lines.push(`👥 참석자: ${data.a}`);
-  if(data.cat&&CAT[data.cat])lines.push(`📂 카테고리: ${CAT[data.cat].l}`);
-  if(data.m)lines.push(`\n📝 내용:\n${data.m}`);
-  if(data.dec)lines.push(`\n✅ 결정사항:\n${data.dec}`);
-  if(data.act)lines.push(`\n🎯 Action Items:\n${data.act}`);
-  const text=lines.join("\n");
-  const copyAll=async()=>{try{await navigator.clipboard.writeText(text);setCopied(true);setTimeout(()=>setCopied(false),2000);}catch{}};
-
+// ─── Confirm Dialog ───
+function ConfirmDialog({message,onConfirm,onCancel}){
   return(
-    <div style={{minHeight:"100vh",background:"linear-gradient(180deg,#0F172A 0%,#1E293B 30%,#F1F5F9 30.1%)",padding:"0 16px"}}>
-      <div style={{maxWidth:560,margin:"0 auto",paddingTop:20,paddingBottom:40}}>
-        <div style={{textAlign:"center",padding:"24px 0 36px",color:"#fff"}}>
-          <div style={{fontSize:36,marginBottom:8}}>📅</div>
-          <div style={{fontWeight:800,fontSize:22,letterSpacing:"-0.5px"}}>BizPlanner</div>
-          <div style={{fontSize:11,color:"#94A3B8",fontWeight:600,letterSpacing:2,marginTop:2}}>공유된 일정 정보</div>
-        </div>
-        <div style={{background:"#fff",borderRadius:20,padding:"28px 24px",boxShadow:"0 8px 40px rgba(0,0,0,0.1)",animation:"slideUp 0.5s ease"}}>
-          {data.type&&MT[data.type]&&<div style={{display:"inline-block",fontSize:11,background:MT[data.type].color+"18",color:MT[data.type].color,borderRadius:20,padding:"4px 12px",fontWeight:700,marginBottom:14}}>{MT[data.type].icon} {MT[data.type].label}</div>}
-          {data.t&&<h1 style={{fontSize:22,fontWeight:800,color:"#0F172A",marginBottom:16,lineHeight:1.4}}>{data.t}</h1>}
-          <div style={{display:"flex",flexDirection:"column",gap:10}}>
-            {data.d&&<div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"#F8FAFC",borderRadius:12}}>
-              <span style={{fontSize:18}}>📅</span><div><div style={{fontSize:10,color:"#94A3B8",fontWeight:600}}>날짜</div><div style={{fontSize:15,fontWeight:600,color:"#1E293B"}}>{data.d}{data.ed?` ~ ${data.ed}`:""}</div></div></div>}
-            {data.tm&&<div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"#F8FAFC",borderRadius:12}}>
-              <span style={{fontSize:18}}>⏰</span><div><div style={{fontSize:10,color:"#94A3B8",fontWeight:600}}>시간</div><div style={{fontSize:15,fontWeight:600,color:"#1E293B"}}>{data.tm}{data.et?` - ${data.et}`:""}</div></div></div>}
-            {data.l&&<div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"#F8FAFC",borderRadius:12}}>
-              <span style={{fontSize:18}}>📍</span><div><div style={{fontSize:10,color:"#94A3B8",fontWeight:600}}>장소</div><div style={{fontSize:15,fontWeight:600,color:"#1E293B"}}>{data.l}</div></div></div>}
-          </div>
-          {data.m&&<div style={{marginTop:16,padding:"14px 16px",background:"#FAFBFD",borderRadius:12,borderLeft:"4px solid #3B82F6"}}>
-            <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",marginBottom:6}}>📝 내용</div>
-            <div style={{fontSize:14,color:"#334155",lineHeight:1.8,whiteSpace:"pre-wrap"}}>{data.m}</div></div>}
-          <button onClick={copyAll} style={{width:"100%",marginTop:20,padding:"14px 0",borderRadius:12,border:"none",background:copied?"#10B981":"linear-gradient(135deg,#1E293B,#334155)",color:"#fff",fontWeight:700,fontSize:15,cursor:"pointer"}}>{copied?"✓ 복사됨":"📋 전체 내용 복사"}</button>
+    <div style={modalOverlay} onClick={onCancel}>
+      <div style={{background:"#fff",borderRadius:16,padding:20,width:"100%",maxWidth:340,boxShadow:"0 20px 60px rgba(0,0,0,0.25)"}} onClick={e=>e.stopPropagation()}>
+        <div style={{fontSize:15,fontWeight:600,color:"#1E293B",marginBottom:6,lineHeight:1.5}}>⚠️ 확인</div>
+        <div style={{fontSize:14,color:"#64748B",marginBottom:20,lineHeight:1.6,wordBreak:"keep-all"}}>{message}</div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+          <button onClick={onCancel} style={{...btnS,background:"#F1F5F9",color:"#64748B"}}>취소</button>
+          <button onClick={onConfirm} style={{...btnS,background:"#DC2626",color:"#fff"}}>삭제</button>
         </div>
       </div>
     </div>
   );
 }
 
-// ─── Notification ───
-function reqNotif(){try{if("Notification"in window&&Notification.permission==="default")Notification.requestPermission();}catch{}}
-function showNotif(t,b){try{if("Notification"in window&&Notification.permission==="granted")new Notification(t,{body:b});}catch{}}
-
-// ─── Confirm Dialog ───
-function Confirm({message,onOk,onNo}){
-  return(<div style={ovS} onClick={onNo}><div style={{background:"#fff",borderRadius:16,padding:24,width:"100%",maxWidth:360,boxShadow:"0 20px 60px rgba(0,0,0,0.25)",animation:"slideUp 0.2s ease"}} onClick={e=>e.stopPropagation()}>
-    <div style={{fontSize:15,fontWeight:600,color:"#1E293B",marginBottom:6}}>⚠️ 확인</div>
-    <div style={{fontSize:14,color:"#64748B",marginBottom:20,lineHeight:1.6}}>{message}</div>
-    <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-      <button onClick={onNo} style={{...bS,background:"#F1F5F9",color:"#64748B"}}>취소</button>
-      <button onClick={onOk} style={{...bS,background:"#DC2626",color:"#fff"}}>삭제</button>
-    </div>
-  </div></div>);
-}
-
 // ─── Contact Picker ───
-function CPicker({contacts,value,onChange,onAdd}){
+function ContactPicker({contacts,value,onChange,onAddNew}){
   const[open,setOpen]=useState(false);const[q,setQ]=useState("");const ref=useRef(null);
   useEffect(()=>{const h=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false);};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);},[]);
   const fl=contacts.filter(c=>c.name.toLowerCase().includes(q.toLowerCase())||c.company?.toLowerCase().includes(q.toLowerCase()));
-  return(<div ref={ref} style={{position:"relative"}}>
-    <input value={value} onChange={e=>onChange(e.target.value)} onFocus={()=>setOpen(true)} placeholder="👥 참석자" style={iS}/>
-    {open&&<div style={{position:"absolute",top:"100%",left:0,right:0,background:"#fff",borderRadius:12,boxShadow:"0 8px 32px rgba(0,0,0,0.15)",zIndex:50,maxHeight:200,overflow:"auto",marginTop:4,border:"1px solid #E2E8F0"}}>
-      <div style={{padding:"6px 10px",borderBottom:"1px solid #F1F5F9"}}><input value={q} onChange={e=>setQ(e.target.value)} placeholder="검색..." style={{...iS,padding:"6px 10px",fontSize:13}}/></div>
-      {fl.map(c=><div key={c.id} onClick={()=>{onChange(value?value+", "+c.name:c.name);setOpen(false);setQ("");}} style={{padding:"8px 14px",cursor:"pointer",fontSize:13}} onMouseEnter={e=>e.currentTarget.style.background="#F1F5F9"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-        <div style={{fontWeight:600,color:"#1E293B"}}>{c.name}</div><div style={{fontSize:11,color:"#94A3B8"}}>{c.company}{c.phone?` · ${c.phone}`:""}</div></div>)}
-      <div onClick={()=>{onAdd();setOpen(false);}} style={{padding:"8px 14px",cursor:"pointer",color:"#3B82F6",fontWeight:600,fontSize:13,borderTop:"1px solid #E2E8F0"}}>+ 새 연락처</div>
-    </div>}
-  </div>);
+  return(
+    <div ref={ref} style={{position:"relative"}}>
+      <input value={value} onChange={e=>onChange(e.target.value)} onFocus={()=>setOpen(true)} placeholder="👥 참석자" style={inpS}/>
+      {open&&<div style={{position:"absolute",top:"100%",left:0,right:0,background:"#fff",borderRadius:12,boxShadow:"0 8px 32px rgba(0,0,0,0.15)",zIndex:50,maxHeight:200,overflow:"auto",marginTop:4,border:"1px solid #E2E8F0"}}>
+        <div style={{padding:"6px 8px",borderBottom:"1px solid #F1F5F9"}}><input value={q} onChange={e=>setQ(e.target.value)} placeholder="검색..." style={{...inpS,padding:"6px 10px",fontSize:13}}/></div>
+        {fl.map(c=><div key={c.id} onClick={()=>{onChange(value?value+", "+c.name:c.name);setOpen(false);setQ("");}}
+          style={{padding:"8px 12px",cursor:"pointer",borderBottom:"1px solid #F8FAFC",fontSize:13}}
+          onMouseEnter={e=>e.currentTarget.style.background="#F1F5F9"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+          <div style={{fontWeight:600,color:"#1E293B"}}>{c.name}</div>
+          <div style={{fontSize:11,color:"#94A3B8"}}>{c.company}{c.phone?` · ${c.phone}`:""}</div>
+        </div>)}
+        <div onClick={()=>{onAddNew();setOpen(false);}} style={{padding:"8px 12px",cursor:"pointer",color:"#3B82F6",fontWeight:600,fontSize:13,borderTop:"1px solid #E2E8F0"}}>+ 새 연락처 추가</div>
+      </div>}
+    </div>
+  );
 }
 
-// ─── Company AC ───
-function CoAC({contacts,value,onChange}){
+// ─── Company Autocomplete ───
+function CompanyAC({contacts,value,onChange}){
   const[open,setOpen]=useState(false);
   const cos=[...new Set(contacts.map(c=>c.company).filter(Boolean))];
   const fl=cos.filter(c=>c.toLowerCase().includes(value.toLowerCase()));
-  return(<div style={{position:"relative"}}>
-    <input value={value} onChange={e=>{onChange(e.target.value);setOpen(true);}} onFocus={()=>setOpen(true)} onBlur={()=>setTimeout(()=>setOpen(false),200)} placeholder="🏢 회사명" style={iS}/>
-    {open&&fl.length>0&&value&&<div style={{position:"absolute",top:"100%",left:0,right:0,background:"#fff",borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.12)",zIndex:40,maxHeight:130,overflow:"auto",marginTop:2}}>
-      {fl.map(c=><div key={c} onClick={()=>{onChange(c);setOpen(false);}} style={{padding:"8px 14px",cursor:"pointer",fontSize:13,color:"#334155"}} onMouseEnter={e=>e.currentTarget.style.background="#F1F5F9"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>🏢 {c}</div>)}
-    </div>}
-  </div>);
+  return(
+    <div style={{position:"relative"}}>
+      <input value={value} onChange={e=>{onChange(e.target.value);setOpen(true);}} onFocus={()=>setOpen(true)} onBlur={()=>setTimeout(()=>setOpen(false),200)} placeholder="🏢 회사명" style={inpS}/>
+      {open&&fl.length>0&&value&&<div style={{position:"absolute",top:"100%",left:0,right:0,background:"#fff",borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.12)",zIndex:40,maxHeight:140,overflow:"auto",marginTop:2}}>
+        {fl.map(c=><div key={c} onClick={()=>{onChange(c);setOpen(false);}} style={{padding:"8px 14px",cursor:"pointer",fontSize:13,color:"#334155"}}
+          onMouseEnter={e=>e.currentTarget.style.background="#F1F5F9"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>🏢 {c}</div>)}
+      </div>}
+    </div>
+  );
 }
 
-// ─── Countdown ───
-function Countdown({events}){
+// ─── Countdown Alarm ───
+function CountdownAlarm({events}){
   const[now,setNow]=useState(new Date());
   useEffect(()=>{const t=setInterval(()=>setNow(new Date()),1000);return()=>clearInterval(t);},[]);
   const up=events.filter(e=>e.alarm!=null&&e.alarm>=0&&e.date&&e.time).map(e=>{
     const[h,m]=e.time.split(":").map(Number);const et=new Date(pD(e.date));et.setHours(h,m,0,0);
-    const at=new Date(et.getTime()-(e.alarm||0)*6e4);const diff=at-now;return{...e,diff};
-  }).filter(e=>e.diff>-3e5&&e.diff<864e5*2).sort((a,b)=>a.diff-b.diff).slice(0,3);
+    const at=new Date(et.getTime()-(e.alarm||0)*60000);const diff=at-now;return{...e,diff,et,at};
+  }).filter(e=>e.diff>-300000&&e.diff<864e5*2).sort((a,b)=>a.diff-b.diff).slice(0,3);
   useEffect(()=>{up.forEach(e=>{if(e.diff<=0&&e.diff>-2000)showNotif(`⏰ ${e.title}`,`${e.date} ${e.time}`);});},[now]);
   if(!up.length)return null;
-  const fc=ms=>{if(ms<=0)return"지금!";const h=Math.floor(ms/36e5),m=Math.floor(ms%36e5/6e4),s=Math.floor(ms%6e4/1e3);return h>0?`${h}시간 ${m}분`:m>0?`${m}분 ${s}초`:`${s}초`;};
-  return(<div style={{background:"linear-gradient(135deg,#0F172A,#1E3A5F)",borderRadius:16,padding:"14px 16px",marginBottom:14}}>
-    <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",marginBottom:10,letterSpacing:1.5}}>⏰ COUNTDOWN</div>
-    <div style={{display:"flex",flexDirection:"column",gap:8}}>
-      {up.map(e=><div key={e.id} style={{display:"flex",alignItems:"center",gap:10,background:"rgba(255,255,255,0.06)",borderRadius:10,padding:"10px 12px"}}>
-        <span style={{fontSize:18}}>{CAT[e.category]?.i||"📅"}</span>
-        <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:"#F1F5F9"}}>{e.title}</div><div style={{fontSize:11,color:"#94A3B8"}}>{e.date} {e.time}</div></div>
-        <div style={{background:e.diff<=0?"#EF4444":e.diff<6e5?"#F97316":"#3B82F6",color:"#fff",padding:"4px 10px",borderRadius:20,fontSize:12,fontWeight:700,animation:e.diff<=6e4?"pulse 1s infinite":"none",minWidth:56,textAlign:"center"}}>{fc(e.diff)}</div>
-      </div>)}
-    </div>
-  </div>);
-}
-
-// ─── Dashboard ───
-function Dash({events,todos}){
-  const te=events.filter(e=>{const dates=eventDates(e);return dates.includes(TODAY);}).length;
-  const ut=todos.filter(t=>!t.completed&&t.priority==="high").length;
-  const od=todos.filter(t=>!t.completed&&t.dueDate&&t.dueDate<TODAY).length;
-  const we=events.filter(e=>{const d=dBtw(TODAY,e.date);return d>=0&&d<=7;}).length;
-  return(<div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:14}}>
-    {[{i:"📅",l:"오늘",v:te,c:"#3B82F6",b:"#EFF6FF"},{i:"📆",l:"이번 주",v:we,c:"#8B5CF6",b:"#F5F3FF"},{i:"🔥",l:"긴급",v:ut,c:"#EF4444",b:"#FEF2F2"},{i:"⚠️",l:"초과",v:od,c:"#F97316",b:"#FFF7ED"}].map(x=>
-    <div key={x.l} style={{background:x.b,borderRadius:12,padding:"10px 6px",textAlign:"center"}}>
-      <div style={{fontSize:14}}>{x.i}</div><div style={{fontSize:18,fontWeight:800,color:x.c,margin:"1px 0"}}>{x.v}</div><div style={{fontSize:9,color:"#64748B",fontWeight:600}}>{x.l}</div>
-    </div>)}
-  </div>);
-}
-
-// ─── Share Modal ───
-function ShareM({item,onClose,baseUrl}){
-  const[cp1,setCp1]=useState(false);const[cp2,setCp2]=useState(false);
-  const shareHash=encodeShare(item);
-  const shareUrl=`${baseUrl}#s=${shareHash}`;
-  const txt=`[BizPlanner] ${item.title||""}\n${item.date?`📅 ${item.date}${item.endDate?` ~ ${item.endDate}`:""}`:""}\n${item.time?`⏰ ${item.time}${item.endTime?` - ${item.endTime}`:""}`:""}\n${item.location?`📍 ${item.location}\n`:""}${item.attendees?`👥 ${item.attendees}\n`:""}${item.memo||item.content||item.decisions||""}`.trim();
-  const copy=async(t,fn)=>{try{await navigator.clipboard.writeText(t);fn(true);setTimeout(()=>fn(false),2000);}catch{}};
-  return(<div style={ovS} onClick={onClose}><div style={{...mS,maxWidth:420,animation:"slideUp 0.25s ease"}} onClick={e=>e.stopPropagation()}>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
-      <h3 style={{margin:0,fontSize:18,fontWeight:700,color:"#1E293B"}}>공유하기</h3><button onClick={onClose} style={clS}>✕</button></div>
-    <div style={{background:"linear-gradient(135deg,#EFF6FF,#F0F9FF)",borderRadius:14,padding:16,marginBottom:14,border:"1px solid #BFDBFE"}}>
-      <div style={{fontSize:13,fontWeight:700,color:"#1E293B",marginBottom:4}}>🔗 공유 링크</div>
-      <div style={{display:"flex",gap:6}}>
-        <input value={shareUrl} readOnly style={{...iS,flex:1,fontSize:11,padding:"8px 10px",background:"#fff"}} onClick={e=>e.target.select()}/>
-        <button onClick={()=>copy(shareUrl,setCp1)} style={{...bS,padding:"8px 14px",background:cp1?"#10B981":"#2563EB",color:"#fff",fontSize:12,whiteSpace:"nowrap",minWidth:70}}>{cp1?"✓":"링크 복사"}</button>
-      </div>
-    </div>
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6,marginBottom:14}}>
-      <button onClick={()=>window.open(`sms:?body=${encodeURIComponent(txt+"\n\n🔗 "+shareUrl)}`)} style={{padding:"10px 4px",borderRadius:12,border:"none",background:"#4CAF50",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}><span style={{fontSize:18}}>📱</span>문자</button>
-      <button onClick={()=>window.open(`mailto:?subject=${encodeURIComponent(item.title||"BizPlanner")}&body=${encodeURIComponent(txt+"\n\n🔗 "+shareUrl)}`)} style={{padding:"10px 4px",borderRadius:12,border:"none",background:"#EA4335",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}><span style={{fontSize:18}}>📧</span>이메일</button>
-      <button onClick={()=>copy(txt+"\n\n🔗 "+shareUrl,setCp2)} style={{padding:"10px 4px",borderRadius:12,border:"none",background:cp2?"#10B981":"#1E293B",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}><span style={{fontSize:18}}>📋</span>{cp2?"복사됨":"복사"}</button>
-      {item.date&&<button onClick={()=>downloadICS(item)} style={{padding:"10px 4px",borderRadius:12,border:"none",background:"#0284C7",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}><span style={{fontSize:18}}>📅</span>ICS</button>}
-    </div>
-    <div style={{background:"#F8FAFC",borderRadius:10,padding:12}}>
-      <div style={{fontSize:11,fontWeight:600,color:"#94A3B8",marginBottom:6}}>미리보기</div>
-      <pre style={{fontSize:12,color:"#475569",whiteSpace:"pre-wrap",margin:0,lineHeight:1.5,maxHeight:100,overflow:"auto"}}>{txt}</pre>
-    </div>
-  </div></div>);
-}
-
-// ─── Settings ───
-function Settings({onClose,events,todos,memos,contacts,onRestore,dooray}){
-  const fR=useRef(null);
-  const exp=()=>{const d=JSON.stringify({events,todos,memos,contacts,exportDate:new Date().toISOString()},null,2);const b=new Blob([d],{type:"application/json"});const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download=`BizPlanner_${TODAY}.json`;a.click();URL.revokeObjectURL(u);};
-  const imp=async e=>{const f=e.target.files[0];if(!f)return;try{const t=await f.text();const d=JSON.parse(t);if(d.events&&d.todos){onRestore(d);alert("✅ 복원 완료!");}else alert("올바른 백업 파일이 아닙니다.");}catch{alert("파일을 읽을 수 없습니다.");}};
-  return(<div style={ovS} onClick={onClose}><div style={{...mS,maxWidth:400,animation:"slideUp 0.25s ease"}} onClick={e=>e.stopPropagation()}>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
-      <h3 style={{margin:0,fontSize:18,fontWeight:700,color:"#1E293B"}}>⚙️ 설정</h3><button onClick={onClose} style={clS}>✕</button></div>
-    <div style={{display:"flex",flexDirection:"column",gap:12}}>
-      {/* Dooray status */}
-      <div style={{background:dooray?.dStatus?"linear-gradient(135deg,#ECFDF5,#F0FDF4)":"linear-gradient(135deg,#FEF2F2,#FFF1F2)",borderRadius:12,padding:14,border:`1px solid ${dooray?.dStatus?"#86EFAC":"#FECACA"}`}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
-          <div style={{fontSize:13,fontWeight:700,color:dooray?.dStatus?"#059669":"#DC2626"}}>{dooray?.dStatus?"🔗 두레이 연결됨":"⚠️ 두레이 미연결"}</div>
-          <button onClick={()=>dooray?.checkConn()} style={{fontSize:10,padding:"3px 8px",borderRadius:6,border:"1px solid #E2E8F0",background:"#fff",color:"#64748B",fontWeight:600,cursor:"pointer"}}>{dooray?.dLoading?"확인중...":"연결 확인"}</button>
-        </div>
-        {dooray?.dStatus?<div style={{fontSize:11,color:"#64748B"}}>
-          <div>📅 두레이 일정: <b style={{color:"#059669"}}>{dooray.dEvents.length}건</b></div>
-          {dooray.lastSync&&<div>⏰ 마지막 동기화: {dooray.lastSync}</div>}
-          <button onClick={()=>dooray.syncFromDooray()} style={{...bS,background:"#059669",color:"#fff",width:"100%",padding:"8px 0",marginTop:6,fontSize:12}}>🔄 지금 동기화</button>
-        </div>:<div style={{fontSize:11,color:"#64748B",lineHeight:1.7}}>
-          {dooray?.dError&&<div style={{color:"#DC2626",marginBottom:4}}>❌ {dooray.dError}</div>}
-          Vercel 환경변수에 두레이 API 키를 설정하세요
-        </div>}
-      </div>
-      <div style={{background:"#F8FAFC",borderRadius:12,padding:14}}>
-        <div style={{fontSize:13,fontWeight:700,color:"#1E293B",marginBottom:8}}>📊 데이터 현황</div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
-          {[{l:"일정",v:events.length,c:"#3B82F6"},{l:"할일",v:todos.length,c:"#10B981"},{l:"메모",v:memos.length,c:"#F59E0B"},{l:"연락처",v:contacts.length,c:"#8B5CF6"}].map(s=>
-            <div key={s.l} style={{textAlign:"center"}}><div style={{fontSize:17,fontWeight:800,color:s.c}}>{s.v}</div><div style={{fontSize:10,color:"#94A3B8"}}>{s.l}</div></div>)}
-        </div>
-      </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-        <button onClick={exp} style={{...bS,background:"#1E293B",color:"#fff",width:"100%",padding:"10px 0"}}>📥 백업</button>
-        <div><button onClick={()=>fR.current?.click()} style={{...bS,background:"#3B82F6",color:"#fff",width:"100%",padding:"10px 0"}}>📂 복원</button>
-        <input ref={fR} type="file" accept=".json" onChange={imp} style={{display:"none"}}/></div>
-      </div>
-      {events.length>0&&<button onClick={()=>downloadAllICS(events)} style={{...bS,background:"linear-gradient(135deg,#0284C7,#0369A1)",color:"#fff",width:"100%",padding:"10px 0"}}>📅 전체 ICS 내보내기</button>}
-    </div>
-  </div></div>);
-}
-
-// ─── Calendar with Multi-day bars & Holidays ───
-function Cal({cd,sd,onSel,events,onMo,onTd,onEvClick}){
-  const yr=cd.getFullYear(),mo=cd.getMonth();
-  const fd=new Date(yr,mo,1).getDay();const dim=new Date(yr,mo+1,0).getDate();
-
-  // Build event-per-day map including multi-day
-  const ed={};
-  events.forEach(e=>{
-    const dates=eventDates(e);
-    dates.forEach(d=>{if(!ed[d])ed[d]=[];ed[d].push(e);});
-  });
-
-  // Multi-day events for bar rendering
-  const multiDayEvs=events.filter(e=>e.endDate&&e.endDate!==e.date);
-
-  const cells=[];for(let i=0;i<fd;i++)cells.push(null);for(let d=1;d<=dim;d++)cells.push(d);
-
-  // Calculate multi-day bar positions
-  const bars=[];
-  const COLORS=["#3B82F6","#8B5CF6","#10B981","#F59E0B","#EF4444","#EC4899","#0EA5E9"];
-  multiDayEvs.forEach((e,idx)=>{
-    const sDate=pD(e.date);const eDate=pD(e.endDate);
-    // For each week row that overlaps
-    let cur=new Date(Math.max(sDate, new Date(yr,mo,1)));
-    const mEnd=new Date(yr,mo,dim);
-    if(cur>mEnd||eDate<new Date(yr,mo,1))return;
-
-    const startCell=fd;// offset
-    while(cur<=eDate&&cur<=mEnd){
-      const day=cur.getDate();
-      const cellIdx=fd+day-1;
-      const row=Math.floor(cellIdx/7);
-      const col=cellIdx%7;
-      // Find end of this bar segment (end of week or end of event)
-      let segEnd=new Date(cur);
-      while(segEnd<=eDate&&segEnd<=mEnd&&segEnd.getDay()!==6){segEnd.setDate(segEnd.getDate()+1);}
-      if(segEnd>eDate)segEnd=new Date(eDate);
-      if(segEnd>mEnd)segEnd=new Date(mEnd);
-      const endCol=fd+segEnd.getDate()-1;
-      const span=(endCol%7)-col+1;
-      bars.push({ev:e,row,col,span,color:COLORS[idx%COLORS.length],label:e.title});
-      cur=new Date(segEnd);cur.setDate(cur.getDate()+1);
-    }
-  });
-
-  return(<div style={{background:"#fff",borderRadius:16,padding:"14px 12px",boxShadow:"0 1px 4px rgba(0,0,0,0.05)"}}>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-      <button onClick={()=>onMo(-1)} style={nS}>◂</button>
-      <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontWeight:800,fontSize:16,color:"#1E293B"}}>{yr}년 {MOS[mo]}</span>
-        <button onClick={onTd} style={{fontSize:10,padding:"2px 8px",borderRadius:6,border:"1px solid #E2E8F0",background:"#F8FAFC",color:"#3B82F6",fontWeight:700,cursor:"pointer"}}>오늘</button></div>
-      <button onClick={()=>onMo(1)} style={nS}>▸</button>
-    </div>
-    <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:1,textAlign:"center"}}>
-      {DAYS.map((d,i)=><div key={d} style={{fontSize:11,fontWeight:700,color:i===0?"#EF4444":i===6?"#3B82F6":"#94A3B8",padding:"3px 0"}}>{d}</div>)}
-      {cells.map((day,i)=>{if(!day)return<div key={`e${i}`}/>;
-        const ds=fmt(new Date(yr,mo,day)),isT=ds===TODAY,isS=ds===sd;
-        const de=ed[ds]||[];const ci=i%7;
-        const hol=HOLIDAYS[ds];
-        const isHol=!!hol||ci===0;
-        // Check multi-day bars on this cell
-        const hasBar=multiDayEvs.some(e=>{const dates=eventDates(e);return dates.includes(ds);});
-
-        return(<button key={i} onClick={()=>onSel(ds)} title={hol||""} style={{position:"relative",border:"none",borderRadius:10,padding:"5px 2px 14px",cursor:"pointer",background:isS?"#1E293B":isT?"#EFF6FF":"transparent",color:isS?"#fff":isHol?"#EF4444":ci===6?"#3B82F6":"#334155",fontWeight:isT||isS?700:400,fontSize:13,transition:"all 0.12s",minHeight:40}}>
-          {day}
-          {hol&&<div style={{fontSize:6,color:isS?"#FCA5A5":"#EF4444",fontWeight:700,position:"absolute",bottom:hasBar?10:2,left:0,right:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",padding:"0 1px"}}>{hol}</div>}
-          {de.length>0&&!hasBar&&<div style={{display:"flex",justifyContent:"center",gap:2,position:"absolute",bottom:2,left:0,right:0}}>{de.slice(0,3).map((ev,j)=><div key={j} style={{width:4,height:4,borderRadius:"50%",background:isS?"#fff":isEventPast(ev)?"#CBD5E1":PRI[ev.priority]?.dot||"#94A3B8"}}/>)}</div>}
-          {hasBar&&<div style={{position:"absolute",bottom:2,left:1,right:1,height:4,borderRadius:2,background:"#3B82F6",opacity:isS?0.5:0.7}}/>}
-        </button>);})}
-    </div>
-    {/* Multi-day legend */}
-    {multiDayEvs.filter(e=>{const dates=eventDates(e);return dates.some(d=>{const dd=pD(d);return dd.getFullYear()===yr&&dd.getMonth()===mo;});}).length>0&&
-      <div style={{marginTop:8,display:"flex",flexWrap:"wrap",gap:4}}>
-        {multiDayEvs.filter(e=>{const dates=eventDates(e);return dates.some(d=>{const dd=pD(d);return dd.getFullYear()===yr&&dd.getMonth()===mo;});}).map((e,i)=>
-          <div key={e.id} onClick={()=>onEvClick&&onEvClick(e)} style={{display:"flex",alignItems:"center",gap:4,fontSize:10,background:"#F8FAFC",borderRadius:6,padding:"2px 6px",cursor:"pointer"}}>
-            <div style={{width:8,height:4,borderRadius:2,background:COLORS[i%COLORS.length]}}/>
-            <span style={{color:"#475569",fontWeight:600}}>{e.title}</span>
-            <span style={{color:"#94A3B8"}}>{e.date}~{e.endDate}</span>
-          </div>)}
-      </div>}
-  </div>);
-}
-
-// ─── Event Form (with endDate) ───
-function EvForm({ev,onSave,onClose,onDel,contacts,onAddC,selDate}){
-  const[f,setF]=useState(ev||{id:uid(),title:"",date:selDate||TODAY,endDate:"",time:"09:00",endTime:"10:00",category:"meeting",priority:"medium",location:"",attendees:"",memo:"",alarm:15,company:""});
-  const[cd,setCd]=useState(false);const u=(k,v)=>setF(p=>({...p,[k]:v}));
-  return(<div style={ovS} onClick={onClose}><div style={{...mS,maxHeight:"92vh",overflow:"auto",animation:"slideUp 0.25s ease"}} onClick={e=>e.stopPropagation()}>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-      <h3 style={{margin:0,fontSize:18,fontWeight:700,color:"#1E293B"}}>{ev?"일정 수정":"새 일정"}</h3><button onClick={onClose} style={clS}>✕</button></div>
-    <div style={{display:"flex",flexDirection:"column",gap:10}}>
-      <input value={f.title} onChange={e=>u("title",e.target.value)} placeholder="📌 일정 제목 *" style={iS} autoFocus/>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-        <div><label style={lS}>시작일</label><input type="date" value={f.date} onChange={e=>u("date",e.target.value)} style={iS}/></div>
-        <div><label style={lS}>종료일 <span style={{color:"#94A3B8",fontWeight:400}}>(선택)</span></label><input type="date" value={f.endDate||""} onChange={e=>u("endDate",e.target.value)} min={f.date} style={iS}/></div>
-      </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-        <div><label style={lS}>시작</label><input type="time" value={f.time} onChange={e=>u("time",e.target.value)} style={iS}/></div>
-        <div><label style={lS}>종료</label><input type="time" value={f.endTime} onChange={e=>u("endTime",e.target.value)} style={iS}/></div>
-      </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-        <div><label style={lS}>카테고리</label><select value={f.category} onChange={e=>u("category",e.target.value)} style={iS}>{Object.entries(CAT).map(([k,v])=><option key={k} value={k}>{v.i} {v.l}</option>)}</select></div>
-        <div><label style={lS}>⏰ 알람</label><select value={f.alarm} onChange={e=>u("alarm",Number(e.target.value))} style={iS}><option value={-1}>없음</option>{ALARMS.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}</select></div>
-      </div>
-      <div><label style={lS}>우선순위</label><div style={{display:"flex",gap:6}}>{[["high","상"],["medium","중"],["low","하"]].map(([k,l])=>
-        <button key={k} onClick={()=>u("priority",k)} style={{flex:1,padding:"8px 0",borderRadius:8,border:f.priority===k?`2px solid ${PRI[k].dot}`:"2px solid #E2E8F0",background:f.priority===k?PRI[k].bg:"#fff",color:f.priority===k?PRI[k].text:"#64748B",fontWeight:600,fontSize:13,cursor:"pointer"}}>{l}</button>)}</div></div>
-      <CoAC contacts={contacts} value={f.company||""} onChange={v=>u("company",v)}/>
-      <CPicker contacts={contacts} value={f.attendees} onChange={v=>u("attendees",v)} onAdd={onAddC}/>
-      <input value={f.location} onChange={e=>u("location",e.target.value)} placeholder="📍 장소" style={iS}/>
-      <textarea value={f.memo} onChange={e=>u("memo",e.target.value)} placeholder="📝 메모" rows={3} style={{...iS,resize:"vertical"}}/>
-    </div>
-    <div style={{display:"flex",gap:8,marginTop:14}}>
-      {ev&&<button onClick={()=>setCd(true)} style={{...bS,background:"#FEE2E2",color:"#DC2626"}}>삭제</button>}
-      <div style={{flex:1}}/><button onClick={onClose} style={{...bS,background:"#F1F5F9",color:"#64748B"}}>취소</button>
-      <button onClick={()=>{if(f.title.trim())onSave(f);}} style={{...bS,background:"#1E293B",color:"#fff",opacity:f.title.trim()?1:0.4}}>저장</button></div>
-    {cd&&<Confirm message={`"${ev.title}" 삭제?`} onOk={()=>onDel(ev.id)} onNo={()=>setCd(false)}/>}
-  </div></div>);
-}
-
-// ─── Contact Form ───
-function CoForm({co,onSave,onClose,onDel}){
-  const[f,setF]=useState(co||{id:uid(),name:"",company:"",phone:"",email:"",position:"",notes:""});
-  const[cd,setCd]=useState(false);const u=(k,v)=>setF(p=>({...p,[k]:v}));
-  return(<div style={ovS} onClick={onClose}><div style={{...mS,animation:"slideUp 0.25s ease"}} onClick={e=>e.stopPropagation()}>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-      <h3 style={{margin:0,fontSize:18,fontWeight:700,color:"#1E293B"}}>{co?"연락처 수정":"새 연락처"}</h3><button onClick={onClose} style={clS}>✕</button></div>
-    <div style={{display:"flex",flexDirection:"column",gap:10}}>
-      <input value={f.name} onChange={e=>u("name",e.target.value)} placeholder="👤 이름 *" style={iS} autoFocus/>
-      <input value={f.company} onChange={e=>u("company",e.target.value)} placeholder="🏢 회사" style={iS}/>
-      <input value={f.position} onChange={e=>u("position",e.target.value)} placeholder="💼 직책" style={iS}/>
-      <input value={f.phone} onChange={e=>u("phone",e.target.value)} placeholder="📱 전화번호" style={iS} type="tel"/>
-      <input value={f.email} onChange={e=>u("email",e.target.value)} placeholder="📧 이메일" style={iS} type="email"/>
-      <textarea value={f.notes} onChange={e=>u("notes",e.target.value)} placeholder="📝 메모" rows={2} style={{...iS,resize:"vertical"}}/>
-    </div>
-    <div style={{display:"flex",gap:8,marginTop:14}}>
-      {co&&<button onClick={()=>setCd(true)} style={{...bS,background:"#FEE2E2",color:"#DC2626"}}>삭제</button>}
-      <div style={{flex:1}}/><button onClick={onClose} style={{...bS,background:"#F1F5F9",color:"#64748B"}}>취소</button>
-      <button onClick={()=>{if(f.name.trim())onSave(f);}} style={{...bS,background:"#1E293B",color:"#fff",opacity:f.name.trim()?1:0.4}}>저장</button></div>
-    {cd&&<Confirm message={`"${co.name}" 삭제?`} onOk={()=>onDel(co.id)} onNo={()=>setCd(false)}/>}
-  </div></div>);
-}
-
-// ─── Todo Form ───
-function TdForm({td,onSave,onClose,onDel}){
-  const[f,setF]=useState(td||{id:uid(),title:"",category:"업무",priority:"medium",notes:"",completed:false,createdDate:TODAY,dueDate:""});
-  const[cd,setCd]=useState(false);const u=(k,v)=>setF(p=>({...p,[k]:v}));
-  return(<div style={ovS} onClick={onClose}><div style={{...mS,animation:"slideUp 0.25s ease"}} onClick={e=>e.stopPropagation()}>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-      <h3 style={{margin:0,fontSize:18,fontWeight:700,color:"#1E293B"}}>{td?"할일 수정":"새 할일"}</h3><button onClick={onClose} style={clS}>✕</button></div>
-    <div style={{display:"flex",flexDirection:"column",gap:10}}>
-      <input value={f.title} onChange={e=>u("title",e.target.value)} placeholder="✅ 할 일 *" style={iS} autoFocus/>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-        <div><label style={lS}>카테고리</label><select value={f.category} onChange={e=>u("category",e.target.value)} style={iS}>{TCATS.map(c=><option key={c}>{c}</option>)}</select></div>
-        <div><label style={lS}>📅 마감일</label><input type="date" value={f.dueDate||""} onChange={e=>u("dueDate",e.target.value)} style={iS}/></div>
-      </div>
-      <div><label style={lS}>중요도</label><div style={{display:"flex",gap:6}}>{[["high","상"],["medium","중"],["low","하"]].map(([k,l])=>
-        <button key={k} onClick={()=>u("priority",k)} style={{flex:1,padding:"8px",borderRadius:8,border:f.priority===k?`2px solid ${PRI[k].dot}`:"2px solid #E2E8F0",background:f.priority===k?PRI[k].bg:"#fff",color:f.priority===k?PRI[k].text:"#64748B",fontWeight:600,fontSize:13,cursor:"pointer"}}>{l}</button>)}</div></div>
-      <textarea value={f.notes} onChange={e=>u("notes",e.target.value)} placeholder="📝 메모" rows={2} style={{...iS,resize:"vertical"}}/>
-    </div>
-    <div style={{display:"flex",gap:8,marginTop:14}}>
-      {td&&<button onClick={()=>setCd(true)} style={{...bS,background:"#FEE2E2",color:"#DC2626"}}>삭제</button>}
-      <div style={{flex:1}}/><button onClick={onClose} style={{...bS,background:"#F1F5F9",color:"#64748B"}}>취소</button>
-      <button onClick={()=>{if(f.title.trim())onSave(f);}} style={{...bS,background:"#1E293B",color:"#fff",opacity:f.title.trim()?1:0.4}}>저장</button></div>
-    {cd&&<Confirm message={`"${td.title}" 삭제?`} onOk={()=>onDel(td.id)} onNo={()=>setCd(false)}/>}
-  </div></div>);
-}
-
-// ─── Memo Form ───
-function MeForm({me,onSave,onClose,onDel}){
-  const[f,setF]=useState(me||{id:uid(),title:"",type:"free",date:TODAY,content:"",attendees:"",agenda:"",decisions:"",actionItems:"",nextMeeting:"",attachments:[],voiceNotes:[],tags:""});
-  const[cd,setCd]=useState(false);const u=(k,v)=>setF(p=>({...p,[k]:v}));
-  const fR=useRef(null);const cR=useRef(null);const[rec,setRec]=useState(false);const[rcr,setRcr]=useState(null);
-  const hF=e=>{Array.from(e.target.files).forEach(file=>{const r=new FileReader();r.onload=ev=>{setF(p=>({...p,attachments:[...(p.attachments||[]),{id:uid(),name:file.name,size:file.size,type:file.type.startsWith("image/")?"image":"file",preview:file.type.startsWith("image/")?ev.target.result:null,dataUrl:ev.target.result}]}));};r.readAsDataURL(file);});};
-  const hC=e=>{const file=e.target.files[0];if(!file)return;const r=new FileReader();r.onload=ev=>{setF(p=>({...p,attachments:[...(p.attachments||[]),{id:uid(),name:`사진_${new Date().toLocaleTimeString()}.jpg`,size:file.size,type:"image",preview:ev.target.result,dataUrl:ev.target.result}]}));};r.readAsDataURL(file);};
-  const sR=async()=>{try{const s=await navigator.mediaDevices.getUserMedia({audio:true});const mr=new MediaRecorder(s);const ch=[];mr.ondataavailable=e=>ch.push(e.data);mr.onstop=()=>{const bl=new Blob(ch,{type:"audio/webm"});const r=new FileReader();r.onload=ev=>{setF(p=>({...p,voiceNotes:[...(p.voiceNotes||[]),{id:uid(),dataUrl:ev.target.result,date:new Date().toLocaleTimeString()}]}));};r.readAsDataURL(bl);s.getTracks().forEach(t=>t.stop());};mr.start();setRcr(mr);setRec(true);}catch{alert("마이크 권한이 필요합니다");}};
-  const eR=()=>{if(rcr){rcr.stop();setRec(false);setRcr(null);}};
-  const mt=MT[f.type]||MT.free;
-  return(<div style={ovS} onClick={onClose}><div style={{...mS,maxHeight:"92vh",overflow:"auto",animation:"slideUp 0.25s ease"}} onClick={e=>e.stopPropagation()}>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-      <h3 style={{margin:0,fontSize:18,fontWeight:700,color:"#1E293B"}}>{me?"메모 수정":"새 메모"}</h3><button onClick={onClose} style={clS}>✕</button></div>
-    <div style={{display:"flex",gap:4,marginBottom:12,flexWrap:"wrap"}}>{Object.entries(MT).map(([k,v])=>
-      <button key={k} onClick={()=>u("type",k)} style={{padding:"4px 10px",borderRadius:20,border:f.type===k?`2px solid ${v.color}`:"2px solid #E2E8F0",background:f.type===k?v.color+"18":"#fff",color:f.type===k?v.color:"#64748B",fontWeight:600,fontSize:11,cursor:"pointer"}}>{v.icon} {v.label}</button>)}</div>
-    <div style={{display:"flex",flexDirection:"column",gap:10}}>
-      <input value={f.title} onChange={e=>u("title",e.target.value)} placeholder={`${mt.icon} 제목 *`} style={iS} autoFocus/>
-      <input type="date" value={f.date} onChange={e=>u("date",e.target.value)} style={iS}/>
-      {f.type==="meeting"&&<><input value={f.attendees} onChange={e=>u("attendees",e.target.value)} placeholder="👥 참석자" style={iS}/>
-        <textarea value={f.agenda} onChange={e=>u("agenda",e.target.value)} placeholder="📋 안건" rows={3} style={{...iS,resize:"vertical"}}/>
-        <textarea value={f.decisions} onChange={e=>u("decisions",e.target.value)} placeholder="✅ 결정사항" rows={3} style={{...iS,resize:"vertical"}}/>
-        <textarea value={f.actionItems} onChange={e=>u("actionItems",e.target.value)} placeholder="🎯 Action Items" rows={3} style={{...iS,resize:"vertical"}}/>
-        <input value={f.nextMeeting} onChange={e=>u("nextMeeting",e.target.value)} placeholder="📅 다음 미팅" style={iS}/></>}
-      {f.type==="idea"&&<><textarea value={f.content} onChange={e=>u("content",e.target.value)} placeholder="💡 아이디어..." rows={5} style={{...iS,resize:"vertical"}}/>
-        <input value={f.tags} onChange={e=>u("tags",e.target.value)} placeholder="🏷️ 태그 (쉼표 구분)" style={iS}/></>}
-      {f.type!=="meeting"&&f.type!=="idea"&&<textarea value={f.content} onChange={e=>u("content",e.target.value)} placeholder={f.type==="diary"?"📔 오늘의 일기...":"📝 내용..."} rows={5} style={{...iS,resize:"vertical"}}/>}
-      <div style={{background:"#F8FAFC",borderRadius:12,padding:12}}>
-        <div style={{fontSize:11,fontWeight:700,color:"#64748B",marginBottom:6}}>📎 첨부</div>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          <button onClick={()=>fR.current?.click()} style={aBS}>📁 파일</button><input ref={fR} type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt" onChange={hF} style={{display:"none"}}/>
-          <button onClick={()=>cR.current?.click()} style={aBS}>📷 촬영</button><input ref={cR} type="file" accept="image/*" capture="environment" onChange={hC} style={{display:"none"}}/>
-          <button onClick={rec?eR:sR} style={{...aBS,border:rec?"2px solid #EF4444":"2px dashed #CBD5E1",background:rec?"#FEE2E2":"#fff",color:rec?"#DC2626":"#64748B",animation:rec?"pulse 1s infinite":"none"}}>🎙️ {rec?"중지":"음성"}</button>
-        </div>
-        {(f.attachments?.length>0||f.voiceNotes?.length>0)&&<div style={{marginTop:6,display:"flex",flexDirection:"column",gap:3}}>
-          {f.attachments?.map((a,i)=><div key={a.id} style={{display:"flex",alignItems:"center",gap:6,background:"#fff",borderRadius:6,padding:"4px 8px"}}>
-            {a.type==="image"&&a.preview?<img src={a.preview} style={{width:24,height:24,borderRadius:4,objectFit:"cover"}} alt=""/>:<span>📄</span>}
-            <span style={{flex:1,fontSize:11,color:"#475569",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</span>
-            <button onClick={()=>u("attachments",f.attachments.filter((_,j)=>j!==i))} style={{border:"none",background:"none",color:"#94A3B8",cursor:"pointer",fontSize:12,padding:0}}>✕</button></div>)}
-          {f.voiceNotes?.map((v,i)=><div key={v.id} style={{display:"flex",alignItems:"center",gap:6,background:"#fff",borderRadius:6,padding:"4px 8px"}}>
-            <span>🎙️</span><span style={{flex:1,fontSize:11,color:"#475569"}}>음성 ({v.date})</span>
-            <button onClick={()=>u("voiceNotes",f.voiceNotes.filter((_,j)=>j!==i))} style={{border:"none",background:"none",color:"#94A3B8",cursor:"pointer",fontSize:12,padding:0}}>✕</button></div>)}
-        </div>}
-      </div>
-    </div>
-    <div style={{display:"flex",gap:8,marginTop:14}}>
-      {me&&<button onClick={()=>setCd(true)} style={{...bS,background:"#FEE2E2",color:"#DC2626"}}>삭제</button>}
-      <div style={{flex:1}}/><button onClick={onClose} style={{...bS,background:"#F1F5F9",color:"#64748B"}}>취소</button>
-      <button onClick={()=>{if(f.title.trim())onSave(f);}} style={{...bS,background:"#1E293B",color:"#fff",opacity:f.title.trim()?1:0.4}}>저장</button></div>
-    {cd&&<Confirm message={`"${me.title}" 삭제?`} onOk={()=>onDel(me.id)} onNo={()=>setCd(false)}/>}
-  </div></div>);
-}
-
-// ─── Event Card (with past/ongoing styling) ───
-function EventCard({e,onClick,onShare}){
-  const past=isEventPast(e);
-  const ongoing=isEventOngoing(e);
-  const p=PRI[e.priority]||PRI.medium;
-  const multiDay=e.endDate&&e.endDate!==e.date;
+  const fmtCD=ms=>{if(ms<=0)return"지금!";const h=Math.floor(ms/36e5),m=Math.floor(ms%36e5/6e4),s=Math.floor(ms%6e4/1e3);return h>0?`${h}시간 ${m}분`:m>0?`${m}분 ${s}초`:`${s}초`;};
   return(
-    <div className="card" onClick={onClick} style={{background:past?"#F8FAFC":"#fff",borderRadius:12,padding:"10px 12px",borderLeft:`4px solid ${past?"#CBD5E1":ongoing?"#10B981":p.dot}`,boxShadow:"0 1px 3px rgba(0,0,0,0.04)",cursor:"pointer",transition:"all 0.15s",opacity:past?0.6:1}}>
-      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
-        <span style={{fontSize:14}}>{CAT[e.category]?.i||"📅"}</span>
-        <span style={{fontWeight:600,fontSize:14,color:past?"#94A3B8":"#1E293B",flex:1,textDecoration:past?"line-through":"none"}}>{e.title}</span>
-        {ongoing&&<span style={{fontSize:8,background:"#DCFCE7",color:"#16A34A",borderRadius:4,padding:"2px 5px",fontWeight:700,animation:"pulse 2s infinite"}}>진행중</span>}
-        {past&&<span style={{fontSize:8,background:"#F1F5F9",color:"#94A3B8",borderRadius:4,padding:"2px 5px",fontWeight:700}}>종료</span>}
-        <span style={{fontSize:11,color:past?"#CBD5E1":"#94A3B8"}}>{e.time}{e.endTime?` - ${e.endTime}`:""}</span>
-        {e.alarm>=0&&!past&&<span style={{fontSize:8,background:"#DBEAFE",color:"#2563EB",borderRadius:4,padding:"1px 4px",fontWeight:600}}>⏰</span>}
-        {e.source==="dooray"&&<span style={{fontSize:8,background:"#DBEAFE",color:"#0284C7",borderRadius:4,padding:"1px 4px",fontWeight:700}}>두레이</span>}
-        <button onClick={ev=>{ev.stopPropagation();onShare(e);}} style={{border:"none",background:"none",cursor:"pointer",fontSize:12,padding:1,color:"#94A3B8"}}>↗️</button>
+    <div style={{background:"linear-gradient(135deg,#0F172A,#1E3A5F)",borderRadius:14,padding:"12px 14px",marginBottom:14}}>
+      <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",marginBottom:8,letterSpacing:1.5}}>⏰ COUNTDOWN</div>
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+        {up.map(e=><div key={e.id} style={{display:"flex",alignItems:"center",gap:8,background:"rgba(255,255,255,0.06)",borderRadius:10,padding:"8px 10px"}}>
+          <span style={{fontSize:16}}>{CAT[e.category]?.i||"📅"}</span>
+          <div style={{flex:1,minWidth:0}}><div style={{fontSize:12,fontWeight:600,color:"#F1F5F9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.title}</div><div style={{fontSize:10,color:"#94A3B8"}}>{e.date} {e.time}</div></div>
+          <div style={{background:e.diff<=0?"#EF4444":e.diff<6e5?"#F97316":"#3B82F6",color:"#fff",padding:"3px 8px",borderRadius:20,fontSize:11,fontWeight:700,minWidth:50,textAlign:"center",flexShrink:0}}>{fmtCD(e.diff)}</div>
+        </div>)}
       </div>
-      {multiDay&&<div style={{fontSize:10,color:"#8B5CF6",marginLeft:20,fontWeight:600}}>📅 {e.date} ~ {e.endDate}</div>}
-      {e.company&&<div style={{fontSize:11,color:past?"#CBD5E1":"#64748B",marginLeft:20}}>🏢 {e.company}</div>}
-      {e.location&&<div style={{fontSize:11,color:past?"#CBD5E1":"#64748B",marginLeft:20}}>📍 {e.location}</div>}
-      {e.attendees&&<div style={{fontSize:11,color:past?"#CBD5E1":"#64748B",marginLeft:20}}>👥 {e.attendees}</div>}
     </div>
   );
 }
 
-// ═══════ MAIN APP ═══════
-function App(){
-  const hash=window.location.hash;
-  if(hash.startsWith("#s=")){const data=decodeShare(hash.slice(3));if(data)return <SharedView data={data}/>;}
+// ─── Dashboard Summary ───
+function Dashboard({events,todos}){
+  const todayEvs=events.filter(e=>e.date===TODAY||(e.endDate&&e.date<=TODAY&&e.endDate>=TODAY)).length;
+  const urgentTodos=todos.filter(t=>!t.completed&&t.priority==="high").length;
+  const overdueTodos=todos.filter(t=>!t.completed&&t.dueDate&&t.dueDate<TODAY).length;
+  const weekEvents=events.filter(e=>{const d=dBtw(TODAY,e.date);return d>=0&&d<=7;}).length;
+  const items=[
+    {icon:"📅",label:"오늘",value:todayEvs,color:"#3B82F6",bg:"#EFF6FF"},
+    {icon:"📆",label:"이번 주",value:weekEvents,color:"#8B5CF6",bg:"#F5F3FF"},
+    {icon:"🔥",label:"긴급",value:urgentTodos,color:"#EF4444",bg:"#FEF2F2"},
+    {icon:"⚠️",label:"초과",value:overdueTodos,color:"#F97316",bg:"#FFF7ED"},
+  ];
+  return(
+    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:14}}>
+      {items.map(it=><div key={it.label} style={{background:it.bg,borderRadius:10,padding:"10px 4px",textAlign:"center"}}>
+        <div style={{fontSize:14}}>{it.icon}</div>
+        <div style={{fontSize:18,fontWeight:800,color:it.color,margin:"1px 0"}}>{it.value}</div>
+        <div style={{fontSize:9,color:"#64748B",fontWeight:600}}>{it.label}</div>
+      </div>)}
+    </div>
+  );
+}
 
-  const[ev,setEv]=useState(()=>ld("bp-events",[]));const[td,setTd]=useState(()=>ld("bp-todos",[]));
-  const[me,setMe]=useState(()=>ld("bp-memos",[]));const[co,setCo]=useState(()=>ld("bp-contacts",[]));
-  const[tab,setTab]=useState("schedule");const[cd,setCd]=useState(new Date());const[sd,setSd]=useState(TODAY);
-  const[sEF,setSEF]=useState(false);const[sTF,setSTF]=useState(false);const[sMF,setSMF]=useState(false);const[sCF,setSCF]=useState(false);
-  const[eE,setEE]=useState(null);const[eT,setET]=useState(null);const[eM,setEM]=useState(null);const[eC,setEC]=useState(null);
-  const[share,setShare]=useState(null);const[sSet,setSSet]=useState(false);
-  const[q,setQ]=useState("");const[tF,setTF]=useState("all");const[mF,setMF]=useState("all");const[tS,setTS]=useState("priority");
-  const[gS,setGS]=useState(false);
-  const[now,setNow]=useState(new Date());
-  const baseUrl=window.location.origin+window.location.pathname;
-  const dooray=useDooraySync(ev,setEv);
+// ─── Share Modal ───
+function ShareModal({item,onClose}){
+  const[copied,setCopied]=useState(false);const[copiedContent,setCopiedContent]=useState(false);
+  const txt=`[BizPlanner] ${item.title||"공유"}\n${item.date?`📅 ${item.date}`:""}${item.time?` ⏰ ${item.time}`:""}\n${item.location?`📍 ${item.location}\n`:""}${item.attendees?`👥 ${item.attendees}\n`:""}${item.memo||item.content||item.decisions||""}`.trim();
+  const copy=async(t,setter)=>{try{await navigator.clipboard.writeText(t);setter(true);setTimeout(()=>setter(false),2000);}catch{}};
+  const opts=[
+    {icon:"💬",label:"카카오톡",color:"#FEE500",tc:"#3C1E1E",action:()=>{}},
+    {icon:"📨",label:"두레이",color:"#3E6FE0",tc:"#fff",action:()=>{copy(txt,setCopiedContent);}},
+    {icon:"📱",label:"문자",color:"#4CAF50",tc:"#fff",action:()=>window.open(`sms:?body=${encodeURIComponent(txt)}`)},
+    {icon:"📧",label:"이메일",color:"#EA4335",tc:"#fff",action:()=>window.open(`mailto:?subject=${encodeURIComponent(item.title||"BizPlanner")}&body=${encodeURIComponent(txt)}`)},
+  ];
+  return(
+    <div style={modalOverlay} onClick={onClose}><div style={{...modalCont,maxWidth:380}} onClick={e=>e.stopPropagation()}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <h3 style={{margin:0,fontSize:17,fontWeight:700,color:"#1E293B"}}>공유하기</h3><button onClick={onClose} style={closeS}>✕</button></div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
+        {opts.map(o=><button key={o.label} onClick={o.action} style={{padding:"12px 8px",borderRadius:10,border:"none",background:o.color,color:o.tc,fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+          <span style={{fontSize:20}}>{o.icon}</span>{o.label}</button>)}
+      </div>
+      <div style={{background:"#F8FAFC",borderRadius:10,padding:10}}>
+        <pre style={{fontSize:11,color:"#475569",whiteSpace:"pre-wrap",margin:"0 0 6px",lineHeight:1.5,maxHeight:80,overflow:"auto"}}>{txt}</pre>
+        <button onClick={()=>copy(txt,setCopiedContent)} style={{...btnS,padding:"6px 12px",background:copiedContent?"#10B981":"#E2E8F0",color:copiedContent?"#fff":"#475569",fontSize:11,width:"100%"}}>{copiedContent?"✓ 복사됨":"📋 내용 복사"}</button>
+      </div>
+    </div></div>
+  );
+}
 
-  // Re-render every 30s for past/ongoing status
-  useEffect(()=>{const t=setInterval(()=>setNow(new Date()),30000);return()=>clearInterval(t);},[]);
-  useEffect(()=>{reqNotif();},[]);
-  useEffect(()=>{const h=e=>{if(e.key==="Escape"){if(share)setShare(null);else if(sSet)setSSet(false);else if(sEF){setSEF(false);setEE(null);}else if(sTF){setSTF(false);setET(null);}else if(sMF){setSMF(false);setEM(null);}else if(sCF){setSCF(false);setEC(null);}else if(gS){setGS(false);setQ("");}}}; document.addEventListener("keydown",h);return()=>document.removeEventListener("keydown",h);},[share,sSet,sEF,sTF,sMF,sCF,gS]);
-
-  const persist=(k,d,s)=>{s(d);sv(k,d);};
-  const saveEv=e=>{persist("bp-events",eE?ev.map(x=>x.id===e.id?e:x):[...ev,e],setEv);if(dooray.dStatus&&!e.source)dooray.pushToDooray(e);setSEF(false);setEE(null);};
-  const delEv=id=>{const target=ev.find(e=>e.id===id);if(target?.doorayId&&dooray.dStatus)doorayDelete(target.doorayId);persist("bp-events",ev.filter(e=>e.id!==id),setEv);setSEF(false);setEE(null);};
-  const saveTd=t=>{persist("bp-todos",eT?td.map(x=>x.id===t.id?t:x):[...td,t],setTd);setSTF(false);setET(null);};
-  const delTd=id=>{persist("bp-todos",td.filter(t=>t.id!==id),setTd);setSTF(false);setET(null);};
-  const togTd=id=>{persist("bp-todos",td.map(t=>t.id===id?{...t,completed:!t.completed,completedDate:!t.completed?TODAY:null}:t),setTd);};
-  const saveMe=m=>{persist("bp-memos",eM?me.map(x=>x.id===m.id?m:x):[...me,m],setMe);setSMF(false);setEM(null);};
-  const delMe=id=>{persist("bp-memos",me.filter(m=>m.id!==id),setMe);setSMF(false);setEM(null);};
-  const saveCo=c=>{persist("bp-contacts",eC?co.map(x=>x.id===c.id?c:x):[...co,c],setCo);setSCF(false);setEC(null);};
-  const delCo=id=>{persist("bp-contacts",co.filter(c=>c.id!==id),setCo);setSCF(false);setEC(null);};
-  const restore=d=>{sv("bp-events",d.events);sv("bp-todos",d.todos);sv("bp-memos",d.memos);sv("bp-contacts",d.contacts);setEv(d.events);setTd(d.todos);setMe(d.memos);setCo(d.contacts);setSSet(false);};
-
-  // Import phone contacts
-  const importContacts=async()=>{
-    const picked=await pickPhoneContacts();
-    if(!picked)return;
-    const newContacts=picked.filter(p=>!co.some(c=>c.name===p.name&&c.phone===p.phone));
-    if(newContacts.length===0){alert("새로 추가할 연락처가 없습니다.");return;}
-    persist("bp-contacts",[...co,...newContacts],setCo);
-    alert(`✅ ${newContacts.length}명의 연락처를 가져왔습니다!`);
+// ─── Settings Modal ───
+function SettingsModal({onClose,events,todos,memos,contacts,onRestore,doorayStatus,onDooraySync}){
+  const fileRef=useRef(null);
+  const exportData=()=>{
+    const d=JSON.stringify({events:events.filter(e=>e.source!=="dooray"),todos,memos,contacts,exportDate:new Date().toISOString()},null,2);
+    const blob=new Blob([d],{type:"application/json"});const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");a.href=url;a.download=`BizPlanner_${fmt(new Date())}.json`;a.click();URL.revokeObjectURL(url);
   };
+  const importData=async(e)=>{
+    const file=e.target.files[0];if(!file)return;
+    try{const text=await file.text();const d=JSON.parse(text);
+      if(d.events&&d.todos){onRestore(d);alert("복원 완료!");}
+      else alert("올바른 백업 파일이 아닙니다.");
+    }catch{alert("파일 오류");}
+  };
+  return(
+    <div style={modalOverlay} onClick={onClose}><div style={{...modalCont,maxWidth:380}} onClick={e=>e.stopPropagation()}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <h3 style={{margin:0,fontSize:17,fontWeight:700,color:"#1E293B"}}>⚙️ 설정</h3><button onClick={onClose} style={closeS}>✕</button></div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {/* Dooray Status */}
+        <div style={{background:doorayStatus?.connected?"#F0FDF4":"#FEF2F2",borderRadius:10,padding:12}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#1E293B",marginBottom:6}}>🔗 두레이 캘린더</div>
+          {doorayStatus?.connected?
+            <div style={{fontSize:12,color:"#059669"}}>✅ 연결됨 · {doorayStatus.calendarName||"캘린더"} · {doorayStatus.totalCalendars||1}개</div>
+            :<div style={{fontSize:12,color:"#DC2626"}}>❌ 연결 안됨</div>}
+          <button onClick={onDooraySync} style={{...btnS,background:"#3E6FE0",color:"#fff",width:"100%",padding:"8px 0",marginTop:8,fontSize:12}}>🔄 지금 동기화</button>
+        </div>
+        {/* Data Stats */}
+        <div style={{background:"#F8FAFC",borderRadius:10,padding:12}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#1E293B",marginBottom:6}}>📊 데이터</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
+            {[{l:"일정",v:events.length,c:"#3B82F6"},{l:"할일",v:todos.length,c:"#10B981"},{l:"메모",v:memos.length,c:"#F59E0B"},{l:"연락처",v:contacts.length,c:"#8B5CF6"}].map(s=>
+              <div key={s.l} style={{textAlign:"center"}}><div style={{fontSize:16,fontWeight:800,color:s.c}}>{s.v}</div><div style={{fontSize:9,color:"#94A3B8"}}>{s.l}</div></div>)}
+          </div>
+        </div>
+        {/* Backup */}
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={exportData} style={{...btnS,background:"#1E293B",color:"#fff",flex:1,padding:"10px 0",fontSize:12}}>📥 백업</button>
+          <button onClick={()=>fileRef.current?.click()} style={{...btnS,background:"#3B82F6",color:"#fff",flex:1,padding:"10px 0",fontSize:12}}>📂 복원</button>
+          <input ref={fileRef} type="file" accept=".json" onChange={importData} style={{display:"none"}}/>
+        </div>
+      </div>
+    </div></div>
+  );
+}
 
-  const tQ=gS?"":q;
-  // Merge dooray + local
-  const allEv=[...ev,...dooray.dEvents.filter(de=>!ev.some(le=>le.doorayId===de.doorayId))];
+// ─── Calendar ───
+function Calendar({currentDate,selectedDate,onSelectDate,events,onMonthChange,onToday}){
+  const yr=currentDate.getFullYear(),mo=currentDate.getMonth();
+  const fd=new Date(yr,mo,1).getDay(),dim=new Date(yr,mo+1,0).getDate();
+  const evDates={};
+  events.forEach(e=>{
+    if(!e.date) return;
+    // Multi-day: mark all days in range
+    if(e.endDate && e.endDate > e.date){
+      let cur = pD(e.date);
+      const end = pD(e.endDate);
+      while(cur <= end){
+        const ds = fmt(cur);
+        if(!evDates[ds]) evDates[ds]=[];
+        evDates[ds].push(e);
+        cur = new Date(cur.getTime()+864e5);
+      }
+    } else {
+      if(!evDates[e.date]) evDates[e.date]=[];
+      evDates[e.date].push(e);
+    }
+  });
+  const cells=[];for(let i=0;i<fd;i++)cells.push(null);for(let d=1;d<=dim;d++)cells.push(d);
+  return(
+    <div style={{background:"#fff",borderRadius:14,padding:"14px 10px",boxShadow:"0 1px 4px rgba(0,0,0,0.05)"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <button onClick={()=>onMonthChange(-1)} style={navS}>◂</button>
+        <div style={{display:"flex",alignItems:"center",gap:6}}>
+          <span style={{fontWeight:800,fontSize:16,color:"#1E293B"}}>{yr}년 {MONTHS_KR[mo]}</span>
+          <button onClick={onToday} style={{fontSize:9,padding:"2px 7px",borderRadius:6,border:"1px solid #E2E8F0",background:"#F8FAFC",color:"#3B82F6",fontWeight:700,cursor:"pointer"}}>오늘</button>
+        </div>
+        <button onClick={()=>onMonthChange(1)} style={navS}>▸</button>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:1,textAlign:"center"}}>
+        {DAYS_KR.map((d,i)=><div key={d} style={{fontSize:10,fontWeight:700,color:i===0?"#EF4444":i===6?"#3B82F6":"#94A3B8",padding:"2px 0"}}>{d}</div>)}
+        {cells.map((day,i)=>{
+          if(!day)return<div key={`e-${i}`}/>;
+          const ds=fmt(new Date(yr,mo,day)),isT=ds===TODAY,isS=ds===selectedDate,de=evDates[ds]||[],ci=i%7;
+          const hasDooray=de.some(e=>e.source==="dooray");
+          return(<button key={i} onClick={()=>onSelectDate(ds)}
+            style={{position:"relative",border:"none",borderRadius:8,padding:"4px 2px 8px",cursor:"pointer",background:isS?"#1E293B":isT?"#EFF6FF":"transparent",
+              color:isS?"#fff":ci===0?"#EF4444":ci===6?"#3B82F6":"#334155",fontWeight:isT||isS?700:400,fontSize:13,transition:"all 0.12s"}}>
+            {day}
+            {de.length>0&&<div style={{display:"flex",justifyContent:"center",gap:2,position:"absolute",bottom:1,left:0,right:0}}>
+              {de.slice(0,3).map((ev,j)=><div key={j} style={{width:4,height:4,borderRadius:"50%",background:isS?"#fff":ev.source==="dooray"?"#3E6FE0":PRI[ev.priority]?.dot||"#94A3B8"}}/>)}</div>}
+          </button>);
+        })}
+      </div>
+    </div>
+  );
+}
 
-  // Events for selected day (including multi-day events)
-  const dayEvs=allEv.filter(e=>{const dates=eventDates(e);return dates.includes(sd);}).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
+// ─── Event Card (mobile optimized) ───
+function EventCard({ev,onEdit,onShare}){
+  const p=PRI[ev.priority]||PRI.medium;
+  const isDooray=ev.source==="dooray";
+  const isMultiDay=ev.endDate&&ev.endDate!==ev.date;
+  const isOngoing=ev.date<=TODAY&&(ev.endDate||ev.date)>=TODAY;
+  return(
+    <div style={{background:"#fff",borderRadius:12,padding:"10px 12px",borderLeft:`4px solid ${isDooray?"#3E6FE0":p.dot}`,boxShadow:"0 1px 3px rgba(0,0,0,0.04)",cursor:"pointer"}} onClick={()=>onEdit(ev)}>
+      <div style={{display:"flex",alignItems:"flex-start",gap:6}}>
+        <span style={{fontSize:14,flexShrink:0,marginTop:1}}>{CAT[ev.category]?.i||"📅"}</span>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap"}}>
+            <span style={{fontWeight:600,fontSize:13,color:"#1E293B",wordBreak:"keep-all",lineHeight:1.4}}>{ev.title}</span>
+            {isOngoing&&<span style={{fontSize:9,background:"#DCFCE7",color:"#16A34A",borderRadius:4,padding:"1px 4px",fontWeight:700,flexShrink:0}}>진행중</span>}
+            {isDooray&&<span style={{fontSize:9,background:"#DBEAFE",color:"#3E6FE0",borderRadius:4,padding:"1px 4px",fontWeight:700,flexShrink:0}}>두레이</span>}
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:4,marginTop:3,flexWrap:"wrap"}}>
+            {ev.time&&<span style={{fontSize:11,color:"#94A3B8",fontWeight:500}}>{ev.time}{ev.endTime?`-${ev.endTime}`:""}</span>}
+            {isMultiDay&&<span style={{fontSize:10,color:"#3B82F6",fontWeight:500}}>📅 {ev.date} ~ {ev.endDate}</span>}
+            {ev.calendarName&&<span style={{fontSize:9,color:"#94A3B8"}}>· {ev.calendarName}</span>}
+          </div>
+          {ev.company&&<div style={{fontSize:11,color:"#64748B",marginTop:2}}>🏢 {ev.company}</div>}
+          {ev.location&&<div style={{fontSize:11,color:"#64748B",marginTop:1}}>📍 {ev.location}</div>}
+          {ev.attendees&&<div style={{fontSize:11,color:"#64748B",marginTop:1}}>👥 {ev.attendees}</div>}
+        </div>
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2,flexShrink:0}}>
+          {ev.alarm>=0&&<span style={{fontSize:8,background:"#DBEAFE",color:"#2563EB",borderRadius:3,padding:"0px 3px",fontWeight:600}}>⏰</span>}
+          {isDooray&&<button onClick={e=>{e.stopPropagation();if(ev.doorayId)window.open(`https://basgenbio.dooray.com/calendar/schedules/${ev.doorayId}`,"_blank");}} style={{border:"none",background:"none",cursor:"pointer",fontSize:11,padding:0,color:"#94A3B8"}}>↗</button>}
+          <button onClick={e=>{e.stopPropagation();onShare(ev);}} style={{border:"none",background:"none",cursor:"pointer",fontSize:11,padding:0,color:"#94A3B8"}}>📤</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-  // Upcoming events: grouped by date, with past detection
-  const upcomingAll=allEv.filter(e=>{
-    const endD=e.endDate||e.date;
-    return endD>=TODAY;
-  }).sort((a,b)=>a.date.localeCompare(b.date)||(a.time||"").localeCompare(b.time||""));
+// ─── Event Form ───
+function EventForm({event,onSave,onClose,onDelete,contacts,onAddContact,selectedDate}){
+  const[f,setF]=useState(event||{id:uid(),title:"",date:selectedDate||TODAY,endDate:"",time:"09:00",endTime:"10:00",category:"meeting",priority:"medium",location:"",attendees:"",memo:"",alarm:15,company:"",source:"local"});
+  const[confirmDel,setConfirmDel]=useState(false);
+  const u=(k,v)=>setF(p=>({...p,[k]:v}));
+  const isDooray=f.source==="dooray";
+  return(
+    <div style={modalOverlay} onClick={onClose}><div style={{...modalCont,maxHeight:"90vh",overflow:"auto"}} onClick={e=>e.stopPropagation()}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <h3 style={{margin:0,fontSize:17,fontWeight:700,color:"#1E293B"}}>{event?"일정 수정":"새 일정"}{isDooray&&<span style={{fontSize:11,color:"#3E6FE0",fontWeight:500}}> (두레이)</span>}</h3><button onClick={onClose} style={closeS}>✕</button></div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <input value={f.title} onChange={e=>u("title",e.target.value)} placeholder="📌 일정 제목 *" style={inpS} autoFocus/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+          <div><label style={labS}>시작일</label><input type="date" value={f.date} onChange={e=>u("date",e.target.value)} style={inpS}/></div>
+          <div><label style={labS}>종료일</label><input type="date" value={f.endDate||""} onChange={e=>u("endDate",e.target.value)} style={inpS}/></div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+          <div><label style={labS}>시작</label><input type="time" value={f.time} onChange={e=>u("time",e.target.value)} style={inpS}/></div>
+          <div><label style={labS}>종료</label><input type="time" value={f.endTime} onChange={e=>u("endTime",e.target.value)} style={inpS}/></div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+          <div><label style={labS}>카테고리</label><select value={f.category} onChange={e=>u("category",e.target.value)} style={inpS}>
+            {Object.entries(CAT).map(([k,v])=><option key={k} value={k}>{v.i} {v.l}</option>)}</select></div>
+          <div><label style={labS}>⏰ 알람</label><select value={f.alarm} onChange={e=>u("alarm",Number(e.target.value))} style={inpS}><option value={-1}>없음</option>
+            {ALARM_OPTS.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}</select></div>
+        </div>
+        <div><label style={labS}>우선순위</label>
+          <div style={{display:"flex",gap:5}}>{[["high","상"],["medium","중"],["low","하"]].map(([k,l])=>
+            <button key={k} onClick={()=>u("priority",k)} style={{flex:1,padding:"7px 0",borderRadius:8,border:f.priority===k?`2px solid ${PRI[k].dot}`:"2px solid #E2E8F0",background:f.priority===k?PRI[k].bg:"#fff",color:f.priority===k?PRI[k].text:"#64748B",fontWeight:600,fontSize:12,cursor:"pointer"}}>{l}</button>
+          )}</div></div>
+        <CompanyAC contacts={contacts} value={f.company||""} onChange={v=>u("company",v)}/>
+        <ContactPicker contacts={contacts} value={f.attendees} onChange={v=>u("attendees",v)} onAddNew={onAddContact}/>
+        <input value={f.location} onChange={e=>u("location",e.target.value)} placeholder="📍 장소" style={inpS}/>
+        <textarea value={f.memo} onChange={e=>u("memo",e.target.value)} placeholder="📝 메모" rows={3} style={{...inpS,resize:"vertical"}}/>
+      </div>
+      <div style={{display:"flex",gap:6,marginTop:14}}>
+        {event&&<button onClick={()=>setConfirmDel(true)} style={{...btnS,background:"#FEE2E2",color:"#DC2626",fontSize:12}}>삭제</button>}
+        <div style={{flex:1}}/>
+        <button onClick={onClose} style={{...btnS,background:"#F1F5F9",color:"#64748B",fontSize:12}}>취소</button>
+        <button onClick={()=>{if(f.title.trim())onSave(f);}} style={{...btnS,background:"#1E293B",color:"#fff",fontSize:12,opacity:f.title.trim()?1:0.4}}>
+          {isDooray?"두레이 저장":"저장"}</button>
+      </div>
+      {confirmDel&&<ConfirmDialog message={`"${event.title}" 삭제?`} onConfirm={()=>onDelete(event.id)} onCancel={()=>setConfirmDel(false)}/>}
+    </div></div>
+  );
+}
 
-  // Group by date
-  const upcomingGrouped=useMemo(()=>{
-    const groups={};
-    upcomingAll.forEach(e=>{
-      const key=e.date;
-      if(!groups[key])groups[key]=[];
-      groups[key].push(e);
+// ─── Contact Form ───
+function ContactForm({contact,onSave,onClose,onDelete}){
+  const[f,setF]=useState(contact||{id:uid(),name:"",company:"",phone:"",email:"",position:"",notes:""});
+  const[confirmDel,setConfirmDel]=useState(false);const u=(k,v)=>setF(p=>({...p,[k]:v}));
+  return(
+    <div style={modalOverlay} onClick={onClose}><div style={modalCont} onClick={e=>e.stopPropagation()}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <h3 style={{margin:0,fontSize:17,fontWeight:700,color:"#1E293B"}}>{contact?"연락처 수정":"새 연락처"}</h3><button onClick={onClose} style={closeS}>✕</button></div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <input value={f.name} onChange={e=>u("name",e.target.value)} placeholder="👤 이름 *" style={inpS} autoFocus/>
+        <input value={f.company} onChange={e=>u("company",e.target.value)} placeholder="🏢 회사" style={inpS}/>
+        <input value={f.position} onChange={e=>u("position",e.target.value)} placeholder="💼 직책" style={inpS}/>
+        <input value={f.phone} onChange={e=>u("phone",e.target.value)} placeholder="📱 전화번호" style={inpS} type="tel"/>
+        <input value={f.email} onChange={e=>u("email",e.target.value)} placeholder="📧 이메일" style={inpS} type="email"/>
+        <textarea value={f.notes} onChange={e=>u("notes",e.target.value)} placeholder="📝 메모" rows={2} style={{...inpS,resize:"vertical"}}/>
+      </div>
+      <div style={{display:"flex",gap:6,marginTop:14}}>
+        {contact&&<button onClick={()=>setConfirmDel(true)} style={{...btnS,background:"#FEE2E2",color:"#DC2626",fontSize:12}}>삭제</button>}
+        <div style={{flex:1}}/><button onClick={onClose} style={{...btnS,background:"#F1F5F9",color:"#64748B",fontSize:12}}>취소</button>
+        <button onClick={()=>{if(f.name.trim())onSave(f);}} style={{...btnS,background:"#1E293B",color:"#fff",fontSize:12,opacity:f.name.trim()?1:0.4}}>저장</button></div>
+      {confirmDel&&<ConfirmDialog message={`"${contact.name}" 삭제?`} onConfirm={()=>onDelete(contact.id)} onCancel={()=>setConfirmDel(false)}/>}
+    </div></div>
+  );
+}
+
+// ─── Todo Form ───
+function TodoForm({todo,onSave,onClose,onDelete}){
+  const[f,setF]=useState(todo||{id:uid(),title:"",priority:"medium",createdDate:TODAY,completed:false,completedDate:null,category:"업무",notes:"",dueDate:""});
+  const[confirmDel,setConfirmDel]=useState(false);const u=(k,v)=>setF(p=>({...p,[k]:v}));
+  return(
+    <div style={modalOverlay} onClick={onClose}><div style={modalCont} onClick={e=>e.stopPropagation()}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <h3 style={{margin:0,fontSize:17,fontWeight:700,color:"#1E293B"}}>{todo?"할 일 수정":"새 할 일"}</h3><button onClick={onClose} style={closeS}>✕</button></div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <input value={f.title} onChange={e=>u("title",e.target.value)} placeholder="✏️ 할 일 *" style={inpS} autoFocus/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+          <div><label style={labS}>카테고리</label><select value={f.category} onChange={e=>u("category",e.target.value)} style={inpS}>
+            {TODO_CATS.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
+          <div><label style={labS}>📅 마감일</label><input type="date" value={f.dueDate||""} onChange={e=>u("dueDate",e.target.value)} style={inpS}/></div>
+        </div>
+        <div><label style={labS}>우선순위</label>
+          <div style={{display:"flex",gap:5}}>{[["high","상"],["medium","중"],["low","하"]].map(([k,l])=>
+            <button key={k} onClick={()=>u("priority",k)} style={{flex:1,padding:"7px 0",borderRadius:8,border:f.priority===k?`2px solid ${PRI[k].dot}`:"2px solid #E2E8F0",background:f.priority===k?PRI[k].bg:"#fff",color:f.priority===k?PRI[k].text:"#64748B",fontWeight:600,fontSize:12,cursor:"pointer"}}>{l}</button>
+          )}</div></div>
+        <textarea value={f.notes} onChange={e=>u("notes",e.target.value)} placeholder="📝 메모" rows={2} style={{...inpS,resize:"vertical"}}/>
+      </div>
+      <div style={{display:"flex",gap:6,marginTop:14}}>
+        {todo&&<button onClick={()=>setConfirmDel(true)} style={{...btnS,background:"#FEE2E2",color:"#DC2626",fontSize:12}}>삭제</button>}
+        <div style={{flex:1}}/><button onClick={onClose} style={{...btnS,background:"#F1F5F9",color:"#64748B",fontSize:12}}>취소</button>
+        <button onClick={()=>{if(f.title.trim())onSave(f);}} style={{...btnS,background:"#1E293B",color:"#fff",fontSize:12,opacity:f.title.trim()?1:0.4}}>저장</button></div>
+      {confirmDel&&<ConfirmDialog message={`"${todo.title}" 삭제?`} onConfirm={()=>onDelete(todo.id)} onCancel={()=>setConfirmDel(false)}/>}
+    </div></div>
+  );
+}
+
+// ─── Memo Form ───
+function MemoForm({memo,onSave,onClose,onDelete}){
+  const[f,setF]=useState(memo||{id:uid(),title:"",date:TODAY,type:"free",content:"",attendees:"",agenda:"",decisions:"",actionItems:"",nextMeeting:"",tags:"",attachments:[],voiceNotes:[]});
+  const[confirmDel,setConfirmDel]=useState(false);const u=(k,v)=>setF(p=>({...p,[k]:v}));
+  const mt=MEMO_T[f.type]||MEMO_T.free;const fileRef=useRef(null);const camRef=useRef(null);const[recording,setRecording]=useState(false);
+  const handleFile=e=>{const files=Array.from(e.target.files||[]);const atts=files.map(f=>{const r={id:uid(),name:f.name,type:f.type.startsWith("image/")?"image":"file",size:f.size};if(r.type==="image")r.preview=URL.createObjectURL(f);return r;});u("attachments",[...(f.attachments||[]),...atts]);};
+  const handleCamera=e=>{const file=e.target.files?.[0];if(file)u("attachments",[...(f.attachments||[]),{id:uid(),name:`photo_${Date.now()}.jpg`,type:"image",preview:URL.createObjectURL(file)}]);};
+  const startRec=async()=>{try{const s=await navigator.mediaDevices.getUserMedia({audio:true});const mr=new MediaRecorder(s);const ch=[];mr.ondataavailable=e=>ch.push(e.data);mr.onstop=()=>{s.getTracks().forEach(t=>t.stop());u("voiceNotes",[...(f.voiceNotes||[]),{id:uid(),date:new Date().toLocaleString("ko-KR")}]);};mr.start();setRecording(true);setTimeout(()=>{if(mr.state==="recording"){mr.stop();setRecording(false);}},60000);window._rec=mr;}catch{}};
+  const stopRec=()=>{if(window._rec&&window._rec.state==="recording")window._rec.stop();setRecording(false);};
+  return(
+    <div style={modalOverlay} onClick={onClose}><div style={{...modalCont,maxHeight:"90vh",overflow:"auto"}} onClick={e=>e.stopPropagation()}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <h3 style={{margin:0,fontSize:17,fontWeight:700,color:"#1E293B"}}>{memo?"메모 수정":"새 메모"}</h3><button onClick={onClose} style={closeS}>✕</button></div>
+      <div style={{display:"flex",gap:4,marginBottom:12,flexWrap:"wrap"}}>
+        {Object.entries(MEMO_T).map(([k,v])=><button key={k} onClick={()=>u("type",k)}
+          style={{padding:"4px 8px",borderRadius:16,border:f.type===k?`2px solid ${v.color}`:"2px solid #E2E8F0",background:f.type===k?v.color+"18":"#fff",color:f.type===k?v.color:"#64748B",fontWeight:600,fontSize:10,cursor:"pointer"}}>
+          {v.icon} {v.label}</button>)}
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <input value={f.title} onChange={e=>u("title",e.target.value)} placeholder={`${mt.icon} 제목 *`} style={inpS} autoFocus/>
+        <input type="date" value={f.date} onChange={e=>u("date",e.target.value)} style={inpS}/>
+        {f.type==="meeting"&&<>
+          <input value={f.attendees} onChange={e=>u("attendees",e.target.value)} placeholder="👥 참석자" style={inpS}/>
+          <textarea value={f.agenda} onChange={e=>u("agenda",e.target.value)} placeholder="📋 안건" rows={2} style={{...inpS,resize:"vertical"}}/>
+          <textarea value={f.decisions} onChange={e=>u("decisions",e.target.value)} placeholder="✅ 결정사항" rows={2} style={{...inpS,resize:"vertical"}}/>
+          <textarea value={f.actionItems} onChange={e=>u("actionItems",e.target.value)} placeholder="🎯 Action Items" rows={2} style={{...inpS,resize:"vertical"}}/>
+          <input value={f.nextMeeting} onChange={e=>u("nextMeeting",e.target.value)} placeholder="📅 다음 미팅" style={inpS}/></>}
+        {f.type==="idea"&&<><textarea value={f.content} onChange={e=>u("content",e.target.value)} placeholder="💡 아이디어..." rows={4} style={{...inpS,resize:"vertical"}}/>
+          <input value={f.tags} onChange={e=>u("tags",e.target.value)} placeholder="🏷️ 태그 (쉼표 구분)" style={inpS}/></>}
+        {f.type!=="meeting"&&f.type!=="idea"&&<textarea value={f.content} onChange={e=>u("content",e.target.value)}
+          placeholder={f.type==="diary"?"📔 오늘의 일기...":"📝 메모..."} rows={4} style={{...inpS,resize:"vertical"}}/>}
+        <div style={{background:"#F8FAFC",borderRadius:10,padding:10}}>
+          <div style={{fontSize:10,fontWeight:700,color:"#64748B",marginBottom:6}}>📎 첨부</div>
+          <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+            <button onClick={()=>fileRef.current?.click()} style={attachBtnS}>📁 파일</button>
+            <input ref={fileRef} type="file" multiple accept="image/*,.pdf,.doc,.docx" onChange={handleFile} style={{display:"none"}}/>
+            <button onClick={()=>camRef.current?.click()} style={attachBtnS}>📷 사진</button>
+            <input ref={camRef} type="file" accept="image/*" capture="environment" onChange={handleCamera} style={{display:"none"}}/>
+            <button onClick={recording?stopRec:startRec} style={{...attachBtnS,border:recording?"2px solid #EF4444":"2px dashed #CBD5E1",background:recording?"#FEE2E2":"#fff",color:recording?"#DC2626":"#64748B"}}>
+              🎙️ {recording?"중지":"음성"}</button>
+          </div>
+          {(f.attachments?.length>0||f.voiceNotes?.length>0)&&<div style={{marginTop:6,display:"flex",flexDirection:"column",gap:3}}>
+            {f.attachments?.map((a,i)=><div key={a.id} style={{display:"flex",alignItems:"center",gap:4,background:"#fff",borderRadius:6,padding:"4px 6px"}}>
+              {a.type==="image"&&a.preview?<img src={a.preview} style={{width:24,height:24,borderRadius:4,objectFit:"cover"}} alt=""/>:<span>📄</span>}
+              <span style={{flex:1,fontSize:10,color:"#475569",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</span>
+              <button onClick={()=>u("attachments",f.attachments.filter((_,j)=>j!==i))} style={{border:"none",background:"none",color:"#94A3B8",cursor:"pointer",fontSize:12,padding:0}}>✕</button></div>)}
+            {f.voiceNotes?.map((v,i)=><div key={v.id} style={{display:"flex",alignItems:"center",gap:4,background:"#fff",borderRadius:6,padding:"4px 6px"}}>
+              <span>🎙️</span><span style={{flex:1,fontSize:10,color:"#475569"}}>음성 ({v.date})</span>
+              <button onClick={()=>u("voiceNotes",f.voiceNotes.filter((_,j)=>j!==i))} style={{border:"none",background:"none",color:"#94A3B8",cursor:"pointer",fontSize:12,padding:0}}>✕</button></div>)}
+          </div>}
+        </div>
+      </div>
+      <div style={{display:"flex",gap:6,marginTop:14}}>
+        {memo&&<button onClick={()=>setConfirmDel(true)} style={{...btnS,background:"#FEE2E2",color:"#DC2626",fontSize:12}}>삭제</button>}
+        <div style={{flex:1}}/><button onClick={onClose} style={{...btnS,background:"#F1F5F9",color:"#64748B",fontSize:12}}>취소</button>
+        <button onClick={()=>{if(f.title.trim())onSave(f);}} style={{...btnS,background:"#1E293B",color:"#fff",fontSize:12,opacity:f.title.trim()?1:0.4}}>저장</button></div>
+      {confirmDel&&<ConfirmDialog message={`"${memo.title}" 삭제?`} onConfirm={()=>onDelete(memo.id)} onCancel={()=>setConfirmDel(false)}/>}
+    </div></div>
+  );
+}
+
+// ═══════ MAIN APP ═══════
+function BizPlanner(){
+  const[events,setEvents]=useState([]);const[todos,setTodos]=useState([]);const[memos,setMemos]=useState([]);const[contacts,setContacts]=useState([]);
+  const[loading,setLoading]=useState(true);const[tab,setTab]=useState("schedule");
+  const[curDate,setCurDate]=useState(new Date());const[selDate,setSelDate]=useState(TODAY);
+  const[showEF,setShowEF]=useState(false);const[showTF,setShowTF]=useState(false);const[showMF,setShowMF]=useState(false);const[showCF,setShowCF]=useState(false);
+  const[editEv,setEditEv]=useState(null);const[editTd,setEditTd]=useState(null);const[editMe,setEditMe]=useState(null);const[editCo,setEditCo]=useState(null);
+  const[shareItem,setShareItem]=useState(null);const[showSettings,setShowSettings]=useState(false);
+  const[search,setSearch]=useState("");const[todoFilt,setTodoFilt]=useState("all");const[memoFilt,setMemoFilt]=useState("all");
+  const[todoSort,setTodoSort]=useState("priority");const[syncSt,setSyncSt]=useState("idle");const[globalSearch,setGlobalSearch]=useState(false);
+  const[doorayStatus,setDoorayStatus]=useState(null);const[lastSync,setLastSync]=useState(null);
+  const syncRef=useRef(null);
+
+  // ─── Dooray Sync ───
+  const syncDooray = useCallback(async (currentLocalEvents)=>{
+    try {
+      setSyncSt("syncing");
+      const now = new Date();
+      const from = fmt(new Date(now.getFullYear(), now.getMonth()-1, 1));
+      const to = fmt(new Date(now.getFullYear(), now.getMonth()+3, 0));
+      const data = await doorayFetch("list",{from,to});
+      if(!data || !data.events) { setSyncSt("error"); return currentLocalEvents; }
+      
+      // Also get status
+      const status = await doorayFetch("status");
+      if(status) setDoorayStatus(status);
+      
+      // Merge: keep local events, add/update dooray events
+      const localOnly = (currentLocalEvents||[]).filter(e=>e.source!=="dooray");
+      const doorayEvs = data.events.map(de=>({
+        ...de,
+        source:"dooray",
+        alarm:-1,
+        priority: de.priority || "medium",
+        category: de.category || "meeting",
+      }));
+      
+      const merged = [...localOnly, ...doorayEvs];
+      sv("bp-events", merged);
+      setEvents(merged);
+      setSyncSt("synced");
+      setLastSync(new Date());
+      return merged;
+    } catch(e) {
+      console.error("Dooray sync error:",e);
+      setSyncSt("error");
+      return currentLocalEvents;
+    }
+  },[]);
+
+  // ─── Push to Dooray ───
+  const pushToDooray = useCallback(async (ev, action="create")=>{
+    try {
+      if(action==="create"){
+        const result = await doorayPost("create",{
+          title: ev.title,
+          date: ev.date,
+          endDate: ev.endDate || ev.date,
+          time: ev.time || "09:00",
+          endTime: ev.endTime || "10:00",
+          location: ev.location || "",
+          memo: ev.memo || "",
+          attendees: ev.attendees || ""
+        });
+        return result;
+      } else if(action==="update" && ev.doorayId){
+        return await doorayPost("update",{
+          doorayId: ev.doorayId,
+          title: ev.title,
+          date: ev.date,
+          endDate: ev.endDate || ev.date,
+          time: ev.time || "09:00",
+          endTime: ev.endTime || "10:00",
+          location: ev.location || "",
+          memo: ev.memo || "",
+        });
+      } else if(action==="delete" && ev.doorayId){
+        return await doorayFetch("delete",{doorayId: ev.doorayId});
+      }
+    } catch(e){ console.error("Push to Dooray error:",e); }
+    return null;
+  },[]);
+
+  // ─── Init: load local + auto sync Dooray ───
+  useEffect(()=>{
+    requestNotifPermission();
+    const e=ld("bp-events",[]),t=ld("bp-todos",[]),m=ld("bp-memos",[]),c=ld("bp-contacts",[]);
+      setEvents(e);setTodos(t);setMemos(m);setContacts(c);setLoading(false);
+      // Auto-sync Dooray on load
+      syncDooray(e);
+  },[]);
+
+  // ─── Periodic sync (every 60s) ───
+  useEffect(()=>{
+    syncRef.current = setInterval(async()=>{
+      const e = ld("bp-events",[]);
+      await syncDooray(e);
+    }, 60000);
+    return()=>clearInterval(syncRef.current);
+  },[syncDooray]);
+
+  // ─── Local storage sync (8s) ───
+  useEffect(()=>{const t=setInterval(()=>{const e=ld("bp-events",[]),t2=ld("bp-todos",[]),m=ld("bp-memos",[]),c=ld("bp-contacts",[]);setEvents(e);setTodos(t2);setMemos(m);setContacts(c);},8000);return()=>clearInterval(t);},[]);
+
+  useEffect(()=>{const h=e=>{if(e.key==="Escape"){if(shareItem)setShareItem(null);else if(showSettings)setShowSettings(false);else if(showEF){setShowEF(false);setEditEv(null);}else if(showTF){setShowTF(false);setEditTd(null);}else if(showMF){setShowMF(false);setEditMe(null);}else if(showCF){setShowCF(false);setEditCo(null);}else if(globalSearch){setGlobalSearch(false);setSearch("");}}}; document.addEventListener("keydown",h);return()=>document.removeEventListener("keydown",h);},[shareItem,showSettings,showEF,showTF,showMF,showCF,globalSearch]);
+
+  const persist=useCallback((k,d,s)=>{s(d);sv(k,d);},[]);
+
+  // ─── Event CRUD with Dooray sync ───
+  const saveEv=async(ev)=>{
+    const isDooray = ev.source==="dooray";
+    const isNew = !editEv;
+    
+    if(isDooray && ev.doorayId){
+      // Update existing Dooray event
+      await pushToDooray(ev, "update");
+    } else if(!isDooray && !isNew){
+      // Update local event - no Dooray action
+    }
+    
+    persist("bp-events", editEv ? events.map(e=>e.id===ev.id?ev:e) : [...events,{...ev,source:ev.source||"local"}], setEvents);
+    setShowEF(false);setEditEv(null);
+    
+    // If new local event, optionally push to Dooray
+    if(isNew && !isDooray){
+      // Could add a toggle "동기화" option here in future
+    }
+  };
+  const delEv=async(id)=>{
+    const ev=events.find(e=>e.id===id);
+    if(ev?.source==="dooray"&&ev.doorayId){
+      await pushToDooray(ev,"delete");
+    }
+    persist("bp-events",events.filter(e=>e.id!==id),setEvents);setShowEF(false);setEditEv(null);
+  };
+  const saveTd=td=>{persist("bp-todos",editTd?todos.map(t=>t.id===td.id?td:t):[...todos,td],setTodos);setShowTF(false);setEditTd(null);};
+  const delTd=id=>{persist("bp-todos",todos.filter(t=>t.id!==id),setTodos);setShowTF(false);setEditTd(null);};
+  const togTd=id=>{persist("bp-todos",todos.map(t=>t.id===id?{...t,completed:!t.completed,completedDate:!t.completed?TODAY:null}:t),setTodos);};
+  const saveMe=m=>{persist("bp-memos",editMe?memos.map(e=>e.id===m.id?m:e):[...memos,m],setMemos);setShowMF(false);setEditMe(null);};
+  const delMe=id=>{persist("bp-memos",memos.filter(m=>m.id!==id),setMemos);setShowMF(false);setEditMe(null);};
+  const saveCo=c=>{persist("bp-contacts",editCo?contacts.map(e=>e.id===c.id?c:e):[...contacts,c],setContacts);setShowCF(false);setEditCo(null);};
+  const delCo=id=>{persist("bp-contacts",contacts.filter(c=>c.id!==id),setContacts);setShowCF(false);setEditCo(null);};
+  const restoreData=d=>{sv("bp-events",d.events||[]);sv("bp-todos",d.todos||[]);sv("bp-memos",d.memos||[]);sv("bp-contacts",d.contacts||[]);setEvents(d.events||[]);setTodos(d.todos||[]);setMemos(d.memos||[]);setContacts(d.contacts||[]);setShowSettings(false);};
+
+  // ─── Filters ───
+  const tabSearch=globalSearch?"":search;
+  const dayEvs=events.filter(e=>{
+    if(e.date===selDate) return true;
+    if(e.endDate && e.date<=selDate && e.endDate>=selDate) return true;
+    return false;
+  }).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
+  const fTodos=todos.filter(t=>todoFilt==="active"?!t.completed:todoFilt==="completed"?t.completed:true)
+    .filter(t=>!tabSearch||t.title.toLowerCase().includes(tabSearch.toLowerCase()))
+    .sort((a,b)=>{
+      if(todoSort==="priority"){const o={high:0,medium:1,low:2};return(o[a.priority]||1)-(o[b.priority]||1);}
+      if(todoSort==="due"){if(!a.dueDate&&!b.dueDate)return 0;if(!a.dueDate)return 1;if(!b.dueDate)return -1;return a.dueDate.localeCompare(b.dueDate);}
+      return 0;
     });
-    return Object.entries(groups).slice(0,10);// max 10 date groups
-  },[upcomingAll,now]);
+  const fMemos=memos.filter(m=>memoFilt!=="all"?m.type===memoFilt:true).filter(m=>!tabSearch||m.title.toLowerCase().includes(tabSearch.toLowerCase())||m.content?.toLowerCase().includes(tabSearch.toLowerCase())).sort((a,b)=>b.date.localeCompare(a.date));
+  const upcoming=events.filter(e=>e.date>=TODAY).sort((a,b)=>a.date.localeCompare(b.date)||(a.time||"").localeCompare(b.time||"")).slice(0,8);
+  const selDO=pD(selDate);const dateLbl=`${selDO.getMonth()+1}월 ${selDO.getDate()}일 (${DAYS_KR[selDO.getDay()]})`;
+  const activeTd=todos.filter(t=>!t.completed).length;
 
-  // Past events (recent 10)
-  const pastEvs=allEv.filter(e=>isEventPast(e)).sort((a,b)=>b.date.localeCompare(a.date)||(b.time||"").localeCompare(a.time||"")).slice(0,5);
+  const gResults=search&&globalSearch?{
+    events:events.filter(e=>e.title?.toLowerCase().includes(search.toLowerCase())||e.location?.toLowerCase().includes(search.toLowerCase())),
+    todos:todos.filter(t=>t.title.toLowerCase().includes(search.toLowerCase())),
+    memos:memos.filter(m=>m.title.toLowerCase().includes(search.toLowerCase())||m.content?.toLowerCase().includes(search.toLowerCase())),
+    contacts:contacts.filter(c=>c.name.toLowerCase().includes(search.toLowerCase())||c.company?.toLowerCase().includes(search.toLowerCase())),
+  }:null;
 
-  const fTd=td.filter(t=>tF==="active"?!t.completed:tF==="completed"?t.completed:true).filter(t=>!tQ||t.title.toLowerCase().includes(tQ.toLowerCase()))
-    .sort((a,b)=>{if(tS==="priority"){const o={high:0,medium:1,low:2};return(o[a.priority]||1)-(o[b.priority]||1);}if(tS==="created")return dBtw(b.createdDate,TODAY)-dBtw(a.createdDate,TODAY);if(tS==="due"){if(!a.dueDate&&!b.dueDate)return 0;if(!a.dueDate)return 1;if(!b.dueDate)return -1;return a.dueDate.localeCompare(b.dueDate);}return 0;});
-  const fMe=me.filter(m=>mF!=="all"?m.type===mF:true).filter(m=>!tQ||m.title.toLowerCase().includes(tQ.toLowerCase())||m.content?.toLowerCase().includes(tQ.toLowerCase())).sort((a,b)=>b.date.localeCompare(a.date));
+  const tabItems=[{k:"schedule",i:"📅",l:"일정"},{k:"todo",i:"✅",l:"할일",badge:activeTd},{k:"memo",i:"📝",l:"메모"},{k:"contacts",i:"👥",l:"연락처"}];
 
-  const sdo=pD(sd);const dl=`${sdo.getMonth()+1}월 ${sdo.getDate()}일 (${DAYS[sdo.getDay()]})`;
-  const holToday=HOLIDAYS[sd];
-  const atd=td.filter(t=>!t.completed).length;
-  const gR=q&&gS?{e:allEv.filter(e=>e.title.toLowerCase().includes(q.toLowerCase())||e.location?.toLowerCase().includes(q.toLowerCase())),t:td.filter(t=>t.title.toLowerCase().includes(q.toLowerCase())),m:me.filter(m=>m.title.toLowerCase().includes(q.toLowerCase())||m.content?.toLowerCase().includes(q.toLowerCase())),c:co.filter(c=>c.name.toLowerCase().includes(q.toLowerCase())||c.company?.toLowerCase().includes(q.toLowerCase()))}:null;
-
-  const tabs=[{k:"schedule",i:"📅",l:"일정"},{k:"todo",i:"✅",l:"할일",badge:atd},{k:"memo",i:"📝",l:"메모"},{k:"contacts",i:"👥",l:"연락처"}];
+  if(loading)return(<div style={{display:"flex",justifyContent:"center",alignItems:"center",height:"100vh",background:"#F8FAFC"}}>
+    <div style={{textAlign:"center"}}><div style={{fontSize:40,marginBottom:10}}>📅</div><div style={{color:"#64748B",fontSize:13}}>로딩 중...</div></div></div>);
 
   return(
-    <div style={{minHeight:"100vh",background:"#F1F5F9",paddingBottom:80}}>
+    <div style={{minHeight:"100vh",background:"#F1F5F9",fontFamily:"'Noto Sans KR','Pretendard',-apple-system,sans-serif",paddingBottom:76}}>
+      <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+
       {/* Header */}
-      <div style={{background:"linear-gradient(135deg,#0F172A,#1E293B 60%,#1E3A5F)",color:"#fff",padding:"12px 20px",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 12px rgba(0,0,0,0.2)"}}>
-        <div style={{maxWidth:900,margin:"0 auto",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <div style={{width:32,height:32,borderRadius:10,background:"linear-gradient(135deg,#3B82F6,#8B5CF6)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>📅</div>
-            <div><div style={{fontWeight:800,fontSize:15,letterSpacing:"-0.5px"}}>BizPlanner</div><div style={{fontSize:8,color:"#94A3B8",fontWeight:600,letterSpacing:1.5}}>SMART BUSINESS PLANNER</div></div>
+      <div style={{background:"linear-gradient(135deg,#0F172A,#1E293B 60%,#1E3A5F)",color:"#fff",padding:"12px 16px",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 12px rgba(0,0,0,0.2)"}}>
+        <div style={{maxWidth:600,margin:"0 auto",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <div style={{width:30,height:30,borderRadius:8,background:"linear-gradient(135deg,#3B82F6,#8B5CF6)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15}}>📅</div>
+            <div><div style={{fontWeight:800,fontSize:15,letterSpacing:"-0.5px"}}>BizPlanner</div>
+              <div style={{fontSize:8,color:"#94A3B8",fontWeight:600,letterSpacing:1.2}}>SMART BUSINESS PLANNER</div></div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:6}}>
-            {dooray.dStatus!==null&&<button onClick={()=>dooray.syncFromDooray()} title={dooray.lastSync?`마지막 동기화: ${dooray.lastSync}`:"동기화 대기중"} style={{border:"none",background:dooray.dStatus?"rgba(16,185,129,0.2)":"rgba(239,68,68,0.2)",borderRadius:8,padding:"4px 8px",cursor:"pointer",fontSize:11,color:dooray.dStatus?"#10B981":"#EF4444",fontWeight:600,display:"flex",alignItems:"center",gap:3,animation:dooray.dLoading?"pulse 1s infinite":"none"}}>
-              {dooray.dLoading?"⟳":dooray.dStatus?"🔗":"⚠️"}{dooray.dStatus?" 두레이":" 미연결"}
-            </button>}
-            <button onClick={()=>setSSet(true)} style={{border:"none",background:"rgba(255,255,255,0.1)",borderRadius:8,padding:"6px 8px",cursor:"pointer",fontSize:13,color:"#94A3B8"}}>⚙️</button>
+            {/* Dooray Link */}
+            <button onClick={()=>syncDooray(events)} style={{border:"none",background:"rgba(62,111,224,0.3)",borderRadius:6,padding:"5px 8px",cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>
+              <span style={{fontSize:11}}>🔗</span>
+              <span style={{fontSize:10,color:"#93C5FD",fontWeight:600}}>두레이</span>
+            </button>
+            {/* Sync Status */}
+            <div style={{display:"flex",alignItems:"center",gap:3,fontSize:9,color:syncSt==="synced"?"#4ADE80":syncSt==="syncing"?"#FBBF24":syncSt==="error"?"#F87171":"#94A3B8",fontWeight:600}}>
+              <div style={{width:5,height:5,borderRadius:"50%",background:syncSt==="synced"?"#4ADE80":syncSt==="syncing"?"#FBBF24":syncSt==="error"?"#F87171":"#64748B",animation:syncSt==="syncing"?"pulse 1s infinite":"none"}}/>
+              {syncSt==="synced"?"동기화":syncSt==="syncing"?"동기화중":syncSt==="error"?"오류":"대기"}
+            </div>
+            <button onClick={()=>setShowSettings(true)} style={{border:"none",background:"rgba(255,255,255,0.1)",borderRadius:6,padding:"5px 7px",cursor:"pointer",fontSize:13,color:"#94A3B8"}}>⚙️</button>
           </div>
         </div>
       </div>
 
-      <div style={{maxWidth:900,margin:"0 auto",padding:"0 14px"}}>
+      <div style={{maxWidth:600,margin:"0 auto",padding:"0 12px"}}>
+
         {/* Search */}
         <div style={{margin:"10px 0 0",position:"relative"}}>
-          <input value={q} onChange={e=>{setQ(e.target.value);setGS(!!e.target.value);}} placeholder="🔍 전체 검색..." style={{...iS,background:"#fff",borderRadius:12,paddingRight:40,boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}/>
-          {q&&<button onClick={()=>{setQ("");setGS(false);}} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",border:"none",background:"none",color:"#94A3B8",cursor:"pointer",fontSize:15}}>✕</button>}
+          <input value={search} onChange={e=>{setSearch(e.target.value);if(e.target.value)setGlobalSearch(true);else setGlobalSearch(false);}}
+            placeholder="🔍 전체 검색" style={{...inpS,background:"#fff",borderRadius:10,paddingRight:40,boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}/>
+          {search&&<button onClick={()=>{setSearch("");setGlobalSearch(false);}} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",border:"none",background:"none",color:"#94A3B8",cursor:"pointer",fontSize:15}}>✕</button>}
         </div>
 
-        {gR&&(gR.e.length+gR.t.length+gR.m.length+gR.c.length)>0&&<div style={{background:"#fff",borderRadius:12,marginTop:6,padding:12,boxShadow:"0 2px 8px rgba(0,0,0,0.06)",maxHeight:280,overflow:"auto"}}>
-          <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",marginBottom:6}}>검색 결과 ({gR.e.length+gR.t.length+gR.m.length+gR.c.length}건)</div>
-          {gR.e.map(e=><div key={e.id} className="sr" onClick={()=>{setEE(e);setSEF(true);setGS(false);setQ("");}} style={srS}><span>{CAT[e.category]?.i||"📅"}</span><span style={{flex:1,fontWeight:600}}>{e.title}</span><span style={{fontSize:11,color:"#94A3B8"}}>{e.date}</span></div>)}
-          {gR.t.map(t=><div key={t.id} className="sr" onClick={()=>{setET(t);setSTF(true);setGS(false);setQ("");}} style={srS}><span>✅</span><span style={{flex:1,fontWeight:600}}>{t.title}</span><span style={{fontSize:10,background:PRI[t.priority]?.bg,color:PRI[t.priority]?.text,borderRadius:4,padding:"1px 4px"}}>{PRI[t.priority]?.label}</span></div>)}
-          {gR.m.map(m=><div key={m.id} className="sr" onClick={()=>{setEM(m);setSMF(true);setGS(false);setQ("");}} style={srS}><span>{MT[m.type]?.icon||"📝"}</span><span style={{flex:1,fontWeight:600}}>{m.title}</span><span style={{fontSize:11,color:"#94A3B8"}}>{m.date}</span></div>)}
-          {gR.c.map(c=><div key={c.id} className="sr" onClick={()=>{setEC(c);setSCF(true);setGS(false);setQ("");}} style={srS}><span>👤</span><span style={{flex:1,fontWeight:600}}>{c.name}</span><span style={{fontSize:11,color:"#94A3B8"}}>{c.company}</span></div>)}
-        </div>}
+        {/* Global Search Results */}
+        {gResults&&(gResults.events.length+gResults.todos.length+gResults.memos.length+gResults.contacts.length)>0&&(
+          <div style={{background:"#fff",borderRadius:10,marginTop:6,padding:10,boxShadow:"0 2px 8px rgba(0,0,0,0.06)",maxHeight:260,overflow:"auto"}}>
+            <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",marginBottom:6}}>검색 결과 ({gResults.events.length+gResults.todos.length+gResults.memos.length+gResults.contacts.length}건)</div>
+            {gResults.events.map(e=><div key={e.id} onClick={()=>{setEditEv(e);setShowEF(true);setGlobalSearch(false);setSearch("");}} style={searchResultS}>
+              <span>📅</span><span style={{flex:1,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.title}</span><span style={{fontSize:10,color:"#94A3B8",flexShrink:0}}>{e.date}</span></div>)}
+            {gResults.todos.map(t=><div key={t.id} onClick={()=>{setEditTd(t);setShowTF(true);setGlobalSearch(false);setSearch("");}} style={searchResultS}>
+              <span>✅</span><span style={{flex:1,fontWeight:600}}>{t.title}</span></div>)}
+            {gResults.memos.map(m=><div key={m.id} onClick={()=>{setEditMe(m);setShowMF(true);setGlobalSearch(false);setSearch("");}} style={searchResultS}>
+              <span>{MEMO_T[m.type]?.icon||"📝"}</span><span style={{flex:1,fontWeight:600}}>{m.title}</span></div>)}
+            {gResults.contacts.map(c=><div key={c.id} onClick={()=>{setEditCo(c);setShowCF(true);setGlobalSearch(false);setSearch("");}} style={searchResultS}>
+              <span>👤</span><span style={{flex:1,fontWeight:600}}>{c.name}</span><span style={{fontSize:10,color:"#94A3B8"}}>{c.company}</span></div>)}
+          </div>
+        )}
 
-        {/* Tabs */}
-        <div style={{display:"flex",gap:3,background:"#E2E8F0",borderRadius:14,padding:3,margin:"8px 0"}}>
-          {tabs.map(t=><button key={t.k} onClick={()=>{setTab(t.k);setQ("");setGS(false);}} style={{flex:1,padding:"8px 0",borderRadius:11,border:"none",background:tab===t.k?"#fff":"transparent",color:tab===t.k?"#1E293B":"#64748B",fontWeight:tab===t.k?700:500,fontSize:13,cursor:"pointer",transition:"all 0.2s",boxShadow:tab===t.k?"0 1px 4px rgba(0,0,0,0.08)":"none",display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
-            <span>{t.i}</span>{t.l}{t.badge>0&&<span style={{background:"#EF4444",color:"#fff",fontSize:10,fontWeight:700,borderRadius:10,padding:"1px 5px"}}>{t.badge}</span>}
+        {/* Tab Bar */}
+        <div style={{display:"flex",gap:2,background:"#E2E8F0",borderRadius:12,padding:2,margin:"8px 0"}}>
+          {tabItems.map(t=><button key={t.k} onClick={()=>{setTab(t.k);setSearch("");setGlobalSearch(false);}}
+            style={{flex:1,padding:"8px 0",borderRadius:10,border:"none",background:tab===t.k?"#fff":"transparent",color:tab===t.k?"#1E293B":"#64748B",
+              fontWeight:tab===t.k?700:500,fontSize:12,cursor:"pointer",transition:"all 0.2s",boxShadow:tab===t.k?"0 1px 4px rgba(0,0,0,0.08)":"none",display:"flex",alignItems:"center",justifyContent:"center",gap:3}}>
+            <span style={{fontSize:13}}>{t.i}</span> {t.l}
+            {t.badge>0&&<span style={{background:"#EF4444",color:"#fff",fontSize:9,fontWeight:700,borderRadius:8,padding:"0px 4px",minWidth:14,textAlign:"center"}}>{t.badge}</span>}
           </button>)}
         </div>
 
-        {/* SCHEDULE */}
-        {tab==="schedule"&&<><Dash events={allEv} todos={td}/><Countdown events={allEv}/>
-          <Cal cd={cd} sd={sd} onSel={setSd} events={allEv} onMo={d=>{const n=new Date(cd);n.setMonth(n.getMonth()+d);setCd(n);}} onTd={()=>{setCd(new Date());setSd(TODAY);}} onEvClick={e=>{setEE(e);setSEF(true);}}/>
-
-          {/* Selected day events */}
+        {/* ═══ SCHEDULE ═══ */}
+        {tab==="schedule"&&<>
+          <Dashboard events={events} todos={todos}/>
+          <CountdownAlarm events={events}/>
+          <Calendar currentDate={curDate} selectedDate={selDate} onSelectDate={setSelDate} events={events}
+            onMonthChange={d=>{const nd=new Date(curDate);nd.setMonth(nd.getMonth()+d);setCurDate(nd);}}
+            onToday={()=>{setCurDate(new Date());setSelDate(TODAY);}}/>
+          
+          {/* Day Events */}
           <div style={{marginTop:14}}>
-            <h3 style={{margin:"0 0 8px",fontSize:15,fontWeight:700,color:"#1E293B"}}>
-              {dl}
-              {holToday&&<span style={{fontSize:12,color:"#EF4444",fontWeight:600,marginLeft:6}}>🎌 {holToday}</span>}
-              {dayEvs.length>0&&<span style={{fontSize:12,color:"#94A3B8",fontWeight:400}}> ({dayEvs.length}건)</span>}
-            </h3>
-            {dayEvs.length===0?<div style={{textAlign:"center",padding:"24px 0",color:"#94A3B8"}}><div style={{fontSize:26,marginBottom:4}}>{holToday?"🎉":"🌤"}</div><div style={{fontSize:13}}>{holToday?`${holToday} 🎊`:"일정이 없습니다"}</div>
-              {(()=>{const nx=allEv.filter(e=>e.date>sd).sort((a,b)=>a.date.localeCompare(b.date))[0];return nx?<div style={{fontSize:11,marginTop:6,color:"#3B82F6",cursor:"pointer"}} onClick={()=>setSd(nx.date)}>다음: {nx.date} — {nx.title} →</div>:null;})()}</div>
-            :<div style={{display:"flex",flexDirection:"column",gap:6}}>{dayEvs.map(e=>
-              <EventCard key={e.id} e={e} onClick={()=>{setEE(e);setSEF(true);}} onShare={setShare}/>
-            )}</div>}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <h3 style={{margin:0,fontSize:15,fontWeight:700,color:"#1E293B",wordBreak:"keep-all"}}>{dateLbl}{dayEvs.length>0&&<span style={{fontSize:11,color:"#94A3B8",fontWeight:400}}> ({dayEvs.length}건)</span>}</h3>
+            </div>
+            {dayEvs.length===0?<div style={{textAlign:"center",padding:"24px 0",color:"#94A3B8"}}>
+              <div style={{fontSize:24,marginBottom:4}}>🌤</div>
+              <div style={{fontSize:13}}>일정이 없습니다</div>
+              {(()=>{const next=events.filter(e=>e.date>selDate).sort((a,b)=>a.date.localeCompare(b.date))[0];
+                return next?<div style={{fontSize:11,marginTop:5,color:"#3B82F6",cursor:"pointer"}} onClick={()=>setSelDate(next.date)}>다음: {next.date} — {next.title} →</div>:null;})()}
+            </div>
+            :<div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {dayEvs.map(ev=><EventCard key={ev.id} ev={ev} onEdit={e=>{setEditEv(e);setShowEF(true);}} onShare={setShareItem}/>)}
+            </div>}
           </div>
 
-          {/* Upcoming events grouped by date */}
-          {upcomingGrouped.length>0&&<div style={{marginTop:20}}>
-            <h3 style={{margin:"0 0 10px",fontSize:15,fontWeight:700,color:"#1E293B"}}>📌 다가오는 일정</h3>
-            {upcomingGrouped.map(([date,evts])=>{
-              const d=pD(date);const dayName=DAYS[d.getDay()];
-              const isToday=date===TODAY;
-              const hol=HOLIDAYS[date];
-              return(<div key={date} style={{marginBottom:12}}>
-                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
-                  <div style={{width:40,textAlign:"center",background:isToday?"#1E293B":"#F8FAFC",borderRadius:10,padding:"6px 4px"}}>
-                    <div style={{fontSize:8,fontWeight:700,color:isToday?"#94A3B8":"#94A3B8"}}>{MOS[d.getMonth()]}</div>
-                    <div style={{fontSize:18,fontWeight:800,color:isToday?"#fff":"#1E293B"}}>{d.getDate()}</div>
-                    <div style={{fontSize:8,fontWeight:600,color:isToday?"#60A5FA":d.getDay()===0||hol?"#EF4444":d.getDay()===6?"#3B82F6":"#94A3B8"}}>{dayName}</div>
-                  </div>
-                  <div style={{flex:1,height:1,background:"#E2E8F0"}}/>
-                  {hol&&<span style={{fontSize:10,color:"#EF4444",fontWeight:600}}>🎌 {hol}</span>}
-                  {isToday&&<span style={{fontSize:9,background:"#1E293B",color:"#fff",padding:"2px 6px",borderRadius:6,fontWeight:700}}>오늘</span>}
-                </div>
-                <div style={{display:"flex",flexDirection:"column",gap:4,marginLeft:48}}>
-                  {evts.sort((a,b)=>(a.time||"").localeCompare(b.time||"")).map(e=>
-                    <EventCard key={e.id} e={e} onClick={()=>{setEE(e);setSEF(true);}} onShare={setShare}/>
-                  )}
-                </div>
-              </div>);
-            })}
-          </div>}
-
-          {/* Past events */}
-          {pastEvs.length>0&&<div style={{marginTop:16}}>
-            <h3 style={{margin:"0 0 8px",fontSize:14,fontWeight:700,color:"#94A3B8"}}>🕐 지나간 일정</h3>
+          {/* Upcoming */}
+          {upcoming.length>0&&<div style={{marginTop:16}}>
+            <h3 style={{margin:"0 0 6px",fontSize:14,fontWeight:700,color:"#1E293B"}}>📌 다가오는 일정</h3>
             <div style={{display:"flex",flexDirection:"column",gap:4}}>
-              {pastEvs.map(e=><EventCard key={e.id} e={e} onClick={()=>{setEE(e);setSEF(true);}} onShare={setShare}/>)}
+              {upcoming.map(ev=>{const d=pD(ev.date);const isDooray=ev.source==="dooray";const isMulti=ev.endDate&&ev.endDate!==ev.date;return(
+                <div key={ev.id+ev.date} onClick={()=>{setSelDate(ev.date);setEditEv(ev);setShowEF(true);}} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:"#fff",borderRadius:10,cursor:"pointer",boxShadow:"0 1px 2px rgba(0,0,0,0.03)"}}>
+                  <div style={{width:34,textAlign:"center",flexShrink:0}}>
+                    <div style={{fontSize:8,fontWeight:700,color:"#94A3B8"}}>{MONTHS_KR[d.getMonth()]}</div>
+                    <div style={{fontSize:15,fontWeight:800,color:"#1E293B"}}>{d.getDate()}</div>
+                    <div style={{fontSize:8,color:d.getDay()===0?"#EF4444":d.getDay()===6?"#3B82F6":"#94A3B8"}}>{DAYS_KR[d.getDay()]}</div>
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:12,fontWeight:600,color:"#1E293B",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",wordBreak:"keep-all"}}>{CAT[ev.category]?.i} {ev.title}</div>
+                    <div style={{fontSize:10,color:"#94A3B8",display:"flex",gap:4,flexWrap:"wrap",marginTop:1}}>
+                      {ev.time&&<span>{ev.time}</span>}
+                      {ev.location&&<span>· {ev.location}</span>}
+                      {isMulti&&<span style={{color:"#3B82F6"}}>~{ev.endDate}</span>}
+                    </div>
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2,flexShrink:0}}>
+                    <div style={{width:6,height:6,borderRadius:"50%",background:isDooray?"#3E6FE0":PRI[ev.priority]?.dot||"#94A3B8"}}/>
+                    {isDooray&&<span style={{fontSize:8,color:"#3E6FE0",fontWeight:600}}>D</span>}
+                  </div>
+                </div>);})}</div></div>}
+        </>}
+
+        {/* ═══ TODO ═══ */}
+        {tab==="todo"&&<>
+          <div style={{display:"flex",gap:4,marginBottom:8,alignItems:"center",flexWrap:"wrap"}}>
+            {[["all","전체",todos.length],["active","진행중",todos.filter(t=>!t.completed).length],["completed","완료",todos.filter(t=>t.completed).length]].map(([k,l,c])=>
+              <button key={k} onClick={()=>setTodoFilt(k)} style={{padding:"5px 10px",borderRadius:16,border:todoFilt===k?"2px solid #1E293B":"2px solid #E2E8F0",background:todoFilt===k?"#1E293B":"#fff",color:todoFilt===k?"#fff":"#64748B",fontWeight:600,fontSize:11,cursor:"pointer"}}>{l}({c})</button>)}
+            <div style={{flex:1}}/>
+            <select value={todoSort} onChange={e=>setTodoSort(e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1.5px solid #E2E8F0",fontSize:10,color:"#64748B",background:"#fff"}}>
+              <option value="priority">중요도</option><option value="due">마감일</option>
+            </select>
+          </div>
+          {fTodos.length===0?<div style={{textAlign:"center",padding:"30px 0",color:"#94A3B8"}}><div style={{fontSize:28}}>✨</div><div style={{fontSize:13,marginTop:4}}>{todoFilt==="completed"?"완료 항목 없음":"할 일 없음"}</div></div>
+          :<div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {fTodos.map(td=>{const p=PRI[td.priority];const days=dBtw(td.createdDate,TODAY);const work=td.completed&&td.completedDate?dBtw(td.createdDate,td.completedDate):null;
+              const overdue=!td.completed&&td.dueDate&&td.dueDate<TODAY;const dueSoon=!td.completed&&td.dueDate&&!overdue&&dBtw(TODAY,td.dueDate)<=2;
+              return(<div key={td.id} style={{background:"#fff",borderRadius:10,padding:"10px 12px",borderLeft:`4px solid ${td.completed?"#10B981":overdue?"#EF4444":p.dot}`,boxShadow:"0 1px 3px rgba(0,0,0,0.04)",opacity:td.completed?0.7:1}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <button onClick={()=>togTd(td.id)} style={{width:20,height:20,borderRadius:5,border:`2px solid ${td.completed?"#10B981":"#CBD5E1"}`,background:td.completed?"#10B981":"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:11,flexShrink:0}}>{td.completed&&"✓"}</button>
+                  <div style={{flex:1,cursor:"pointer",minWidth:0}} onClick={()=>{setEditTd(td);setShowTF(true);}}>
+                    <div style={{fontSize:13,fontWeight:600,color:td.completed?"#94A3B8":"#1E293B",textDecoration:td.completed?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",wordBreak:"keep-all"}}>{td.title}</div>
+                    <div style={{display:"flex",gap:4,marginTop:2,flexWrap:"wrap",alignItems:"center"}}>
+                      <span style={{fontSize:9,background:p.bg,color:p.text,borderRadius:3,padding:"0px 4px",fontWeight:600}}>{p.label}</span>
+                      <span style={{fontSize:9,color:"#94A3B8"}}>{td.category}</span>
+                      {!td.completed&&<span style={{fontSize:9,color:days>7?"#EF4444":"#64748B"}}>⏱{days}일</span>}
+                      {work!==null&&<span style={{fontSize:9,color:"#10B981"}}>✅{work}일</span>}
+                      {td.dueDate&&!td.completed&&<span style={{fontSize:9,color:overdue?"#EF4444":dueSoon?"#F97316":"#64748B",fontWeight:overdue||dueSoon?700:400}}>
+                        {overdue?`🚨${Math.abs(dBtw(td.dueDate,TODAY))}일초과`:`D-${dBtw(TODAY,td.dueDate)}`}</span>}
+                    </div>
+                  </div>
+                </div>
+              </div>);})}</div>}
+          {todos.length>0&&<div style={{marginTop:14,background:"#fff",borderRadius:12,padding:12,boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#1E293B"}}>📊 통계</div>
+              {todos.filter(t=>t.completed).length>0&&<button onClick={()=>{if(confirm(`완료 ${todos.filter(t=>t.completed).length}개 삭제?`))persist("bp-todos",todos.filter(t=>!t.completed),setTodos);}} style={{fontSize:10,padding:"3px 8px",borderRadius:5,border:"1px solid #FECACA",background:"#FEF2F2",color:"#DC2626",fontWeight:600,cursor:"pointer"}}>🗑 완료삭제</button>}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
+              {[{l:"전체",v:todos.length,c:"#3B82F6"},{l:"완료율",v:`${todos.length>0?Math.round(todos.filter(t=>t.completed).length/todos.length*100):0}%`,c:"#10B981"},
+                {l:"평균소요",v:(()=>{const cd=todos.filter(t=>t.completed&&t.completedDate);return cd.length?`${Math.round(cd.reduce((s,t)=>s+dBtw(t.createdDate,t.completedDate),0)/cd.length)}일`:"-";})(),c:"#F59E0B"},
+                {l:"초과",v:todos.filter(t=>!t.completed&&t.dueDate&&t.dueDate<TODAY).length,c:"#EF4444"},
+              ].map(s=><div key={s.l} style={{textAlign:"center"}}><div style={{fontSize:18,fontWeight:800,color:s.c}}>{s.v}</div><div style={{fontSize:9,color:"#94A3B8"}}>{s.l}</div></div>)}
             </div>
           </div>}
         </>}
 
-        {/* TODO */}
-        {tab==="todo"&&<><div style={{display:"flex",gap:5,marginBottom:8,alignItems:"center",flexWrap:"wrap"}}>
-          {[["all","전체",td.length],["active","진행중",td.filter(t=>!t.completed).length],["completed","완료",td.filter(t=>t.completed).length]].map(([k,l,c])=>
-            <button key={k} onClick={()=>setTF(k)} style={{padding:"5px 10px",borderRadius:20,border:tF===k?"2px solid #1E293B":"2px solid #E2E8F0",background:tF===k?"#1E293B":"#fff",color:tF===k?"#fff":"#64748B",fontWeight:600,fontSize:11,cursor:"pointer"}}>{l}({c})</button>)}
-          <div style={{flex:1}}/><select value={tS} onChange={e=>setTS(e.target.value)} style={{padding:"4px 8px",borderRadius:8,border:"1.5px solid #E2E8F0",fontSize:11,color:"#64748B",background:"#fff"}}><option value="priority">중요도</option><option value="created">경과일</option><option value="due">마감일</option></select>
-        </div>
-        {fTd.length===0?<div style={{textAlign:"center",padding:"30px 0",color:"#94A3B8"}}><div style={{fontSize:28}}>✨</div><div style={{fontSize:13,marginTop:4}}>할 일이 없습니다</div></div>
-        :<div style={{display:"flex",flexDirection:"column",gap:6}}>{fTd.map(t=>{const p=PRI[t.priority];const days=dBtw(t.createdDate,TODAY);const work=t.completed&&t.completedDate?dBtw(t.createdDate,t.completedDate):null;
-          const od=!t.completed&&t.dueDate&&t.dueDate<TODAY;const ds=!t.completed&&t.dueDate&&!od&&dBtw(TODAY,t.dueDate)<=2;
-          return(<div key={t.id} className="card" style={{background:"#fff",borderRadius:12,padding:"10px 12px",borderLeft:`4px solid ${t.completed?"#10B981":od?"#EF4444":p.dot}`,boxShadow:"0 1px 3px rgba(0,0,0,0.04)",opacity:t.completed?0.7:1,transition:"all 0.15s"}}>
-            <div style={{display:"flex",alignItems:"center",gap:8}}>
-              <button onClick={()=>togTd(t.id)} style={{width:20,height:20,borderRadius:6,border:`2px solid ${t.completed?"#10B981":"#CBD5E1"}`,background:t.completed?"#10B981":"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:11,flexShrink:0}}>{t.completed&&"✓"}</button>
-              <div style={{flex:1,cursor:"pointer"}} onClick={()=>{setET(t);setSTF(true);}}>
-                <div style={{fontSize:13,fontWeight:600,color:t.completed?"#94A3B8":"#1E293B",textDecoration:t.completed?"line-through":"none"}}>{t.title}</div>
-                <div style={{display:"flex",gap:5,marginTop:2,flexWrap:"wrap",alignItems:"center"}}>
-                  <span style={{fontSize:10,background:p.bg,color:p.text,borderRadius:4,padding:"1px 4px",fontWeight:600}}>{p.label}</span>
-                  <span style={{fontSize:10,color:"#94A3B8"}}>📁{t.category}</span>
-                  {!t.completed&&<span style={{fontSize:10,color:days>7?"#EF4444":days>3?"#F97316":"#64748B",fontWeight:days>3?600:400}}>⏱{days}일째</span>}
-                  {work!==null&&<span style={{fontSize:10,color:"#10B981",fontWeight:600}}>✅{work}일</span>}
-                  {t.dueDate&&!t.completed&&<span style={{fontSize:10,color:od?"#EF4444":ds?"#F97316":"#64748B",fontWeight:od||ds?700:400,background:od?"#FEF2F2":ds?"#FFF7ED":"transparent",padding:"1px 4px",borderRadius:4}}>
-                    {od?`🚨${Math.abs(dBtw(t.dueDate,TODAY))}일초과`:`📅D-${dBtw(TODAY,t.dueDate)}`}</span>}
+        {/* ═══ MEMO ═══ */}
+        {tab==="memo"&&<>
+          <div style={{display:"flex",gap:4,marginBottom:10,flexWrap:"wrap"}}>
+            <button onClick={()=>setMemoFilt("all")} style={{padding:"4px 8px",borderRadius:16,border:memoFilt==="all"?"2px solid #1E293B":"2px solid #E2E8F0",background:memoFilt==="all"?"#1E293B":"#fff",color:memoFilt==="all"?"#fff":"#64748B",fontWeight:600,fontSize:10,cursor:"pointer"}}>전체</button>
+            {Object.entries(MEMO_T).map(([k,v])=><button key={k} onClick={()=>setMemoFilt(k)} style={{padding:"4px 8px",borderRadius:16,border:memoFilt===k?`2px solid ${v.color}`:"2px solid #E2E8F0",background:memoFilt===k?v.color+"18":"#fff",color:memoFilt===k?v.color:"#64748B",fontWeight:600,fontSize:10,cursor:"pointer"}}>{v.icon} {v.label}</button>)}
+          </div>
+          {fMemos.length===0?<div style={{textAlign:"center",padding:"30px 0",color:"#94A3B8"}}><div style={{fontSize:28}}>📝</div><div style={{fontSize:13,marginTop:4}}>메모 없음</div></div>
+          :<div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {fMemos.map(m=>{const mt=MEMO_T[m.type]||MEMO_T.free;return(
+              <div key={m.id} onClick={()=>{setEditMe(m);setShowMF(true);}} style={{background:"#fff",borderRadius:10,padding:"10px 12px",borderLeft:`4px solid ${mt.color}`,boxShadow:"0 1px 3px rgba(0,0,0,0.04)",cursor:"pointer"}}>
+                <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:2}}>
+                  <span style={{fontSize:12}}>{mt.icon}</span>
+                  <span style={{fontSize:8,background:mt.color+"20",color:mt.color,borderRadius:3,padding:"0px 4px",fontWeight:700}}>{mt.label}</span>
+                  <span style={{fontWeight:600,fontSize:13,color:"#1E293B",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",wordBreak:"keep-all"}}>{m.title}</span>
+                  <span style={{fontSize:10,color:"#94A3B8",flexShrink:0}}>{m.date}</span>
                 </div>
-              </div>
-              <button onClick={e=>{e.stopPropagation();setShare(t);}} style={{border:"none",background:"none",cursor:"pointer",fontSize:12,padding:1,color:"#94A3B8"}}>↗️</button>
-            </div>
-          </div>)})}</div>}
-        {td.length>0&&<div style={{marginTop:14,background:"#fff",borderRadius:14,padding:12,boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-            <div style={{fontSize:12,fontWeight:700,color:"#1E293B"}}>📊 통계</div>
-            {td.filter(t=>t.completed).length>0&&<button onClick={()=>{if(confirm(`완료된 ${td.filter(t=>t.completed).length}개 삭제?`))persist("bp-todos",td.filter(t=>!t.completed),setTd);}} style={{fontSize:10,padding:"3px 8px",borderRadius:6,border:"1px solid #FECACA",background:"#FEF2F2",color:"#DC2626",fontWeight:600,cursor:"pointer"}}>🗑 완료삭제({td.filter(t=>t.completed).length})</button>}
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
-            {[{l:"전체",v:td.length,c:"#3B82F6"},{l:"완료율",v:`${td.length>0?Math.round(td.filter(t=>t.completed).length/td.length*100):0}%`,c:"#10B981"},
-              {l:"평균",v:(()=>{const c=td.filter(t=>t.completed&&t.completedDate);return c.length?`${Math.round(c.reduce((s,t)=>s+dBtw(t.createdDate,t.completedDate),0)/c.length)}일`:"-";})(),c:"#F59E0B"},
-              {l:"초과",v:td.filter(t=>!t.completed&&t.dueDate&&t.dueDate<TODAY).length,c:"#EF4444"}].map(s=><div key={s.l} style={{textAlign:"center"}}><div style={{fontSize:17,fontWeight:800,color:s.c}}>{s.v}</div><div style={{fontSize:9,color:"#94A3B8"}}>{s.l}</div></div>)}
-          </div>
-        </div>}
+                {m.content&&<div style={{fontSize:11,color:"#64748B",marginLeft:18,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{m.content}</div>}
+                {m.decisions&&<div style={{fontSize:10,color:"#059669",marginLeft:18,marginTop:1}}>✅ {m.decisions.substring(0,40)}{m.decisions.length>40?"...":""}</div>}
+              </div>);})}</div>}
         </>}
 
-        {/* MEMO */}
-        {tab==="memo"&&<><div style={{display:"flex",gap:4,marginBottom:10,flexWrap:"wrap"}}>
-          <button onClick={()=>setMF("all")} style={{padding:"4px 10px",borderRadius:20,border:mF==="all"?"2px solid #1E293B":"2px solid #E2E8F0",background:mF==="all"?"#1E293B":"#fff",color:mF==="all"?"#fff":"#64748B",fontWeight:600,fontSize:11,cursor:"pointer"}}>전체</button>
-          {Object.entries(MT).map(([k,v])=><button key={k} onClick={()=>setMF(k)} style={{padding:"4px 10px",borderRadius:20,border:mF===k?`2px solid ${v.color}`:"2px solid #E2E8F0",background:mF===k?v.color+"18":"#fff",color:mF===k?v.color:"#64748B",fontWeight:600,fontSize:11,cursor:"pointer"}}>{v.icon} {v.label}</button>)}
-        </div>
-        {fMe.length===0?<div style={{textAlign:"center",padding:"30px 0",color:"#94A3B8"}}><div style={{fontSize:28}}>📝</div><div style={{fontSize:13,marginTop:4}}>메모가 없습니다</div></div>
-        :<div style={{display:"flex",flexDirection:"column",gap:6}}>{fMe.map(m=>{const mt=MT[m.type]||MT.free;return(
-          <div key={m.id} onClick={()=>{setEM(m);setSMF(true);}} className="card" style={{background:"#fff",borderRadius:12,padding:"10px 12px",borderLeft:`4px solid ${mt.color}`,boxShadow:"0 1px 3px rgba(0,0,0,0.04)",cursor:"pointer",transition:"all 0.15s"}}>
-            <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:2}}>
-              <span style={{fontSize:12}}>{mt.icon}</span><span style={{fontSize:9,background:mt.color+"20",color:mt.color,borderRadius:4,padding:"1px 4px",fontWeight:700}}>{mt.label}</span>
-              <span style={{fontWeight:600,fontSize:13,color:"#1E293B",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.title}</span>
-              <span style={{fontSize:11,color:"#94A3B8"}}>{m.date}</span>
-              <button onClick={e=>{e.stopPropagation();setShare(m);}} style={{border:"none",background:"none",cursor:"pointer",fontSize:12,padding:1,color:"#94A3B8"}}>↗️</button>
-            </div>
-            {m.content&&<div style={{fontSize:12,color:"#64748B",marginLeft:18,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{m.content}</div>}
-            {m.decisions&&<div style={{fontSize:11,color:"#059669",marginLeft:18,marginTop:1}}>✅ {m.decisions.substring(0,50)}{m.decisions.length>50?"...":""}</div>}
-            {m.actionItems&&<div style={{fontSize:11,color:"#D97706",marginLeft:18,marginTop:1}}>🎯 {m.actionItems.substring(0,50)}{m.actionItems.length>50?"...":""}</div>}
-          </div>)})}</div>}</>}
-
-        {/* CONTACTS */}
+        {/* ═══ CONTACTS ═══ */}
         {tab==="contacts"&&<>
-          {/* Phone import button */}
-          <div style={{marginBottom:10}}>
-            <button onClick={importContacts} style={{...bS,background:"linear-gradient(135deg,#3B82F6,#6366F1)",color:"#fff",width:"100%",padding:"10px 0",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-              📱 휴대폰 연락처 가져오기
-            </button>
-            <div style={{fontSize:10,color:"#94A3B8",textAlign:"center",marginTop:4}}>Android Chrome에서 지원 · iPhone은 수동 추가</div>
-          </div>
-          {co.filter(c=>!tQ||c.name.toLowerCase().includes(tQ.toLowerCase())||c.company?.toLowerCase().includes(tQ.toLowerCase())).length===0
-          ?<div style={{textAlign:"center",padding:"30px 0",color:"#94A3B8"}}><div style={{fontSize:28}}>👥</div><div style={{fontSize:13,marginTop:4}}>연락처가 없습니다</div></div>
-          :<><div style={{fontSize:12,color:"#94A3B8",fontWeight:600,marginBottom:6}}>총 {co.filter(c=>!tQ||c.name.toLowerCase().includes(tQ.toLowerCase())||c.company?.toLowerCase().includes(tQ.toLowerCase())).length}명</div>
-            <div style={{display:"flex",flexDirection:"column",gap:6}}>{co.filter(c=>!tQ||c.name.toLowerCase().includes(tQ.toLowerCase())||c.company?.toLowerCase().includes(tQ.toLowerCase())).sort((a,b)=>a.name.localeCompare(b.name)).map(c=>
-              <div key={c.id} onClick={()=>{setEC(c);setSCF(true);}} className="card" style={{background:"#fff",borderRadius:12,padding:"10px 12px",boxShadow:"0 1px 3px rgba(0,0,0,0.04)",cursor:"pointer",display:"flex",alignItems:"center",gap:10,transition:"all 0.15s"}}>
-                <div style={{width:36,height:36,borderRadius:10,background:"linear-gradient(135deg,#6366F1,#8B5CF6)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:14,flexShrink:0}}>{c.name.charAt(0)}</div>
-                <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:"#1E293B"}}>{c.name}{c.position&&<span style={{fontSize:11,color:"#94A3B8",fontWeight:400}}> {c.position}</span>}</div>
-                  <div style={{fontSize:12,color:"#64748B"}}>{c.company&&`🏢 ${c.company}`}{c.phone&&` 📱 ${c.phone}`}</div></div>
-                <div style={{display:"flex",gap:4}}>
-                  {c.phone&&<a href={`tel:${c.phone}`} onClick={e=>e.stopPropagation()} style={{padding:"4px 8px",borderRadius:8,background:"#DBEAFE",fontSize:12,fontWeight:600,color:"#2563EB",textDecoration:"none"}}>📞</a>}
-                  {c.email&&<a href={`mailto:${c.email}`} onClick={e=>e.stopPropagation()} style={{padding:"4px 8px",borderRadius:8,background:"#F0FDF4",fontSize:12,fontWeight:600,color:"#059669",textDecoration:"none"}}>📧</a>}
-                </div>
-              </div>)}</div></>}</>}
+          {contacts.filter(c=>!tabSearch||c.name.toLowerCase().includes(tabSearch.toLowerCase())||c.company?.toLowerCase().includes(tabSearch.toLowerCase())).length===0
+            ?<div style={{textAlign:"center",padding:"30px 0",color:"#94A3B8"}}><div style={{fontSize:28}}>👥</div><div style={{fontSize:13,marginTop:4}}>연락처 없음</div></div>
+            :<>
+            <div style={{fontSize:11,color:"#94A3B8",fontWeight:600,marginBottom:6}}>총 {contacts.filter(c=>!tabSearch||c.name.toLowerCase().includes(tabSearch.toLowerCase())||c.company?.toLowerCase().includes(tabSearch.toLowerCase())).length}명</div>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {contacts.filter(c=>!tabSearch||c.name.toLowerCase().includes(tabSearch.toLowerCase())||c.company?.toLowerCase().includes(tabSearch.toLowerCase())).sort((a,b)=>a.name.localeCompare(b.name)).map(c=>
+                <div key={c.id} onClick={()=>{setEditCo(c);setShowCF(true);}} style={{background:"#fff",borderRadius:10,padding:"10px 12px",boxShadow:"0 1px 3px rgba(0,0,0,0.04)",cursor:"pointer",display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{width:34,height:34,borderRadius:8,background:"linear-gradient(135deg,#6366F1,#8B5CF6)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:14,flexShrink:0}}>{c.name.charAt(0)}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600,color:"#1E293B",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}{c.position&&<span style={{fontSize:10,color:"#94A3B8",fontWeight:400}}> {c.position}</span>}</div>
+                    <div style={{fontSize:11,color:"#64748B",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.company&&`🏢 ${c.company}`}{c.phone&&` 📱 ${c.phone}`}</div>
+                  </div>
+                  <div style={{display:"flex",gap:3,flexShrink:0}}>
+                    {c.phone&&<a href={`tel:${c.phone}`} onClick={e=>e.stopPropagation()} style={{padding:"4px 7px",borderRadius:6,background:"#DBEAFE",fontSize:11,color:"#2563EB",textDecoration:"none"}}>📞</a>}
+                    {c.email&&<a href={`mailto:${c.email}`} onClick={e=>e.stopPropagation()} style={{padding:"4px 7px",borderRadius:6,background:"#F0FDF4",fontSize:11,color:"#059669",textDecoration:"none"}}>📧</a>}
+                  </div>
+                </div>)}</div>
+            </>}
+        </>}
       </div>
 
       {/* FAB */}
-      <button onClick={()=>{if(tab==="schedule"){setEE(null);setSEF(true);}else if(tab==="todo"){setET(null);setSTF(true);}else if(tab==="memo"){setEM(null);setSMF(true);}else{setEC(null);setSCF(true);}}}
-        style={{position:"fixed",bottom:24,right:"max(24px, calc(50% - 426px))",width:54,height:54,borderRadius:"50%",border:"none",background:"linear-gradient(135deg,#3B82F6,#6366F1)",color:"#fff",fontSize:26,cursor:"pointer",boxShadow:"0 4px 20px rgba(59,130,246,0.4)",display:"flex",alignItems:"center",justifyContent:"center",transition:"transform 0.2s",zIndex:90}}
-        onMouseEnter={e=>e.currentTarget.style.transform="scale(1.1) rotate(90deg)"} onMouseLeave={e=>e.currentTarget.style.transform="scale(1) rotate(0deg)"}>+</button>
+      <button onClick={()=>{if(tab==="schedule"){setEditEv(null);setShowEF(true);}else if(tab==="todo"){setEditTd(null);setShowTF(true);}else if(tab==="memo"){setEditMe(null);setShowMF(true);}else{setEditCo(null);setShowCF(true);}}}
+        style={{position:"fixed",bottom:20,right:20,width:52,height:52,borderRadius:"50%",border:"none",background:"linear-gradient(135deg,#3B82F6,#6366F1)",color:"#fff",fontSize:26,cursor:"pointer",boxShadow:"0 4px 20px rgba(59,130,246,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:90}}>+</button>
 
       {/* Modals */}
-      {sEF&&<EvForm ev={eE} onSave={saveEv} onClose={()=>{setSEF(false);setEE(null);}} onDel={delEv} contacts={co} selDate={sd} onAddC={()=>{setSEF(false);setEC(null);setSCF(true);}}/>}
-      {sTF&&<TdForm td={eT} onSave={saveTd} onClose={()=>{setSTF(false);setET(null);}} onDel={delTd}/>}
-      {sMF&&<MeForm me={eM} onSave={saveMe} onClose={()=>{setSMF(false);setEM(null);}} onDel={delMe}/>}
-      {sCF&&<CoForm co={eC} onSave={saveCo} onClose={()=>{setSCF(false);setEC(null);}} onDel={delCo}/>}
-      {share&&<ShareM item={share} onClose={()=>setShare(null)} baseUrl={baseUrl}/>}
-      {sSet&&<Settings onClose={()=>setSSet(false)} events={ev} todos={td} memos={me} contacts={co} onRestore={restore} dooray={dooray}/>}
+      {showEF&&<EventForm event={editEv} onSave={saveEv} onClose={()=>{setShowEF(false);setEditEv(null);}} onDelete={delEv} contacts={contacts} selectedDate={selDate} onAddContact={()=>{setShowEF(false);setEditCo(null);setShowCF(true);}}/>}
+      {showTF&&<TodoForm todo={editTd} onSave={saveTd} onClose={()=>{setShowTF(false);setEditTd(null);}} onDelete={delTd}/>}
+      {showMF&&<MemoForm memo={editMe} onSave={saveMe} onClose={()=>{setShowMF(false);setEditMe(null);}} onDelete={delMe}/>}
+      {showCF&&<ContactForm contact={editCo} onSave={saveCo} onClose={()=>{setShowCF(false);setEditCo(null);}} onDelete={delCo}/>}
+      {shareItem&&<ShareModal item={shareItem} onClose={()=>setShareItem(null)}/>}
+      {showSettings&&<SettingsModal onClose={()=>setShowSettings(false)} events={events} todos={todos} memos={memos} contacts={contacts} onRestore={restoreData} doorayStatus={doorayStatus} onDooraySync={()=>syncDooray(events)}/>}
+
+      <style>{`
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+        *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+        input,select,textarea,button{font-family:'Noto Sans KR',sans-serif}
+        ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:3px}
+        @media(max-width:480px){input,textarea,select{font-size:16px!important}}
+        .sr:hover{background:#F1F5F9!important}
+      `}</style>
     </div>
   );
 }
 
 // ─── Styles ───
-const iS={width:"100%",padding:"10px 14px",borderRadius:10,border:"1.5px solid #E2E8F0",fontSize:14,color:"#1E293B",outline:"none",background:"#F8FAFC",transition:"border-color 0.2s"};
-const lS={display:"block",fontSize:11,fontWeight:600,color:"#64748B",marginBottom:3};
-const bS={padding:"10px 18px",borderRadius:10,border:"none",fontWeight:600,fontSize:13,cursor:"pointer",transition:"all 0.15s"};
-const clS={border:"none",background:"none",fontSize:20,cursor:"pointer",color:"#94A3B8",padding:4};
-const nS={border:"none",background:"#F1F5F9",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:14,color:"#475569",display:"flex",alignItems:"center",justifyContent:"center"};
-const ovS={position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",backdropFilter:"blur(4px)",display:"flex",justifyContent:"center",alignItems:"center",zIndex:200,padding:16};
-const mS={background:"#fff",borderRadius:20,padding:22,width:"100%",maxWidth:500,maxHeight:"88vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.25)"};
-const aBS={padding:"6px 10px",borderRadius:8,border:"2px dashed #CBD5E1",background:"#fff",color:"#64748B",fontSize:11,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:3};
-const srS={display:"flex",alignItems:"center",gap:8,padding:"7px 10px",cursor:"pointer",borderRadius:8,fontSize:13,color:"#1E293B",borderBottom:"1px solid #F8FAFC"};
+const inpS={width:"100%",padding:"9px 12px",borderRadius:8,border:"1.5px solid #E2E8F0",fontSize:14,color:"#1E293B",outline:"none",background:"#F8FAFC",transition:"border-color 0.2s"};
+const labS={display:"block",fontSize:10,fontWeight:600,color:"#64748B",marginBottom:2};
+const btnS={padding:"9px 16px",borderRadius:8,border:"none",fontWeight:600,fontSize:13,cursor:"pointer",transition:"all 0.15s"};
+const closeS={border:"none",background:"none",fontSize:18,cursor:"pointer",color:"#94A3B8",padding:4};
+const navS={border:"none",background:"#F1F5F9",borderRadius:7,width:30,height:30,cursor:"pointer",fontSize:13,color:"#475569",display:"flex",alignItems:"center",justifyContent:"center"};
+const modalOverlay={position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",backdropFilter:"blur(4px)",display:"flex",justifyContent:"center",alignItems:"center",zIndex:200,padding:12};
+const modalCont={background:"#fff",borderRadius:18,padding:20,width:"100%",maxWidth:440,maxHeight:"88vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.25)"};
+const attachBtnS={padding:"6px 10px",borderRadius:6,border:"2px dashed #CBD5E1",background:"#fff",color:"#64748B",fontSize:10,fontWeight:600,cursor:"pointer"};
+const searchResultS={display:"flex",alignItems:"center",gap:6,padding:"7px 8px",cursor:"pointer",borderRadius:6,fontSize:12,color:"#1E293B",borderBottom:"1px solid #F8FAFC",transition:"background 0.12s"};
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
-</script>
+    // Render
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(React.createElement(BizPlanner));
+  </script>
 </body>
 </html>
