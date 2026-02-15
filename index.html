@@ -646,6 +646,7 @@ function RoutineTab({routines,onToggle,today}){
     <div style={{background:"linear-gradient(135deg,#0F172A,#1E3A5F)",borderRadius:16,padding:"16px 14px",marginBottom:12}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
         <div><div style={{fontSize:10,fontWeight:700,color:"#94A3B8",letterSpacing:1.5}}>🔥 오늘의 루틴</div>
+          <div style={{fontSize:13,fontWeight:700,color:"#E2E8F0",marginTop:2}}>{(()=>{const d=new Date();return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일 (${DAYS_KR[d.getDay()]})`})()}</div>
           <div style={{fontSize:22,fontWeight:900,color:"#fff",marginTop:2}}>{done}/{total} <span style={{fontSize:13,color:pct===100?"#4ADE80":"#FBBF24"}}>{pct}%</span></div></div>
         <div style={{textAlign:"center"}}>
           <div style={{fontSize:28,fontWeight:900,color:streak>0?"#F97316":"#475569"}}>{streak}</div>
