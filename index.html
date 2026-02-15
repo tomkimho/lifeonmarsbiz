@@ -8,6 +8,11 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#0F172A">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📅</text></svg>">
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <!-- React -->
   <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
@@ -22,6 +27,60 @@
     const { useState, useEffect, useCallback, useRef } = React;
 
 
+
+// ═══ Firebase Cloud Sync ═══
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyD...(본인 값)",
+  authDomain: "bizplanner-xxxxx.firebaseapp.com",
+  projectId: "bizplanner-xxxxx",
+  storageBucket: "bizplanner-xxxxx.firebasestorage.app",
+  messagingSenderId: "123456789012",
+  appId: "1:123456789012:web:abc123def456"
+};
+
+let fbReady = false;
+try {
+  if (FIREBASE_CONFIG.apiKey !== "PASTE_YOUR_API_KEY") {
+    firebase.initializeApp(FIREBASE_CONFIG);
+    fbReady = true;
+  }
+} catch(e) { console.warn("Firebase init error:", e); }
+
+const fbAuth = fbReady ? firebase.auth() : null;
+const fbDb = fbReady ? firebase.firestore() : null;
+const fbGoogle = fbReady ? new firebase.auth.GoogleAuthProvider() : null;
+
+async function cloudLoad(uid) {
+  if (!fbDb) return null;
+  try { const doc = await fbDb.collection('users').doc(uid).get(); return doc.exists ? doc.data() : null; }
+  catch(e) { console.error("Cloud load:",e); return null; }
+}
+async function cloudSaveAll(uid, data) {
+  if (!fbDb) return;
+  try { await fbDb.collection('users').doc(uid).set({ ...data, lastUpdated: new Date().toISOString() }, { merge: true }); }
+  catch(e) { console.error("Cloud save:",e); }
+}
+
+// ─── Login Screen ───
+function LoginScreen({onLogin,onSkip}){
+  return(
+    <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#0F172A 0%,#1E3A5F 50%,#0F172A 100%)",display:"flex",justifyContent:"center",alignItems:"center",fontFamily:"'Noto Sans KR',sans-serif",padding:20}}>
+      <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+      <div style={{textAlign:"center",maxWidth:360,width:"100%"}}>
+        <div style={{width:80,height:80,borderRadius:20,background:"linear-gradient(135deg,#3B82F6,#8B5CF6)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:40,margin:"0 auto 20px",boxShadow:"0 8px 32px rgba(59,130,246,0.4)"}}>📅</div>
+        <h1 style={{color:"#fff",fontSize:28,fontWeight:800,marginBottom:4,letterSpacing:"-0.5px"}}>BizPlanner</h1>
+        <p style={{color:"#64748B",fontSize:12,marginBottom:40,letterSpacing:2}}>SMART BUSINESS PLANNER</p>
+        <button onClick={onLogin} style={{display:"flex",alignItems:"center",gap:12,margin:"0 auto",padding:"14px 32px",borderRadius:12,border:"none",background:"#fff",color:"#334155",fontSize:15,fontWeight:600,cursor:"pointer",boxShadow:"0 4px 24px rgba(0,0,0,0.3)",transition:"transform 0.15s",width:"100%",maxWidth:280,justifyContent:"center"}}
+          onMouseEnter={e=>e.currentTarget.style.transform="scale(1.02)"} onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}>
+          <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+          Google로 로그인
+        </button>
+        <p style={{color:"#475569",fontSize:11,marginTop:28,lineHeight:1.7}}>로그인하면 휴대폰과 PC에서<br/>같은 일정을 볼 수 있습니다</p>
+        {onSkip&&<button onClick={onSkip} style={{border:"none",background:"none",color:"#64748B",fontSize:12,cursor:"pointer",marginTop:16,padding:"8px 16px",textDecoration:"underline"}}>로그인 없이 사용 →</button>}
+      </div>
+    </div>
+  );
+}
 
 // ─── Constants ───
 const DAYS_KR = ["일","월","화","수","목","금","토"];
@@ -199,7 +258,7 @@ function ShareModal({item,onClose}){
 }
 
 // ─── Settings Modal ───
-function SettingsModal({onClose,events,todos,memos,contacts,onRestore,doorayStatus,onDooraySync}){
+function SettingsModal({onClose,events,todos,memos,contacts,onRestore,doorayStatus,onDooraySync,user,cloudSt,onLogin,onLogout,fbReady}){
   const fileRef=useRef(null);
   const exportData=()=>{
     const d=JSON.stringify({events:events.filter(e=>e.source!=="dooray"),todos,memos,contacts,exportDate:new Date().toISOString()},null,2);
@@ -218,6 +277,23 @@ function SettingsModal({onClose,events,todos,memos,contacts,onRestore,doorayStat
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <h3 style={{margin:0,fontSize:17,fontWeight:700,color:"#1E293B"}}>⚙️ 설정</h3><button onClick={onClose} style={closeS}>✕</button></div>
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {/* Cloud Account */}
+        <div style={{background:user?"#EFF6FF":"#F8FAFC",borderRadius:10,padding:12}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#1E293B",marginBottom:6}}>☁️ 클라우드 동기화</div>
+          {user?<>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+              <img src={user.photoURL||""} style={{width:32,height:32,borderRadius:"50%"}} alt="" onError={e=>{e.target.style.display="none";}}/>
+              <div><div style={{fontSize:12,fontWeight:600,color:"#1E293B"}}>{user.displayName||"사용자"}</div>
+                <div style={{fontSize:10,color:"#64748B"}}>{user.email}</div></div>
+            </div>
+            <div style={{fontSize:11,color:cloudSt==="synced"?"#059669":cloudSt==="syncing"?"#D97706":"#94A3B8",marginBottom:6}}>
+              {cloudSt==="synced"?"✅ 클라우드 동기화됨":cloudSt==="syncing"?"⏳ 동기화 중...":"대기 중"}</div>
+            <button onClick={onLogout} style={{...btnS,background:"#FEE2E2",color:"#DC2626",width:"100%",padding:"8px 0",fontSize:12}}>로그아웃</button>
+          </>:fbReady?<>
+            <div style={{fontSize:12,color:"#64748B",marginBottom:8}}>로그인하면 휴대폰과 PC에서 같은 데이터를 볼 수 있습니다</div>
+            <button onClick={onLogin} style={{...btnS,background:"#1E293B",color:"#fff",width:"100%",padding:"10px 0",fontSize:13}}>Google로 로그인</button>
+          </>:<div style={{fontSize:12,color:"#94A3B8"}}>Firebase 미설정 (로컬 전용 모드)</div>}
+        </div>
         {/* Dooray Status */}
         <div style={{background:doorayStatus?.connected?"#F0FDF4":"#FEF2F2",borderRadius:10,padding:12}}>
           <div style={{fontSize:13,fontWeight:700,color:"#1E293B",marginBottom:6}}>🔗 두레이 캘린더</div>
@@ -514,7 +590,21 @@ function BizPlanner(){
   const[doorayStatus,setDoorayStatus]=useState(null);const[lastSync,setLastSync]=useState(null);
   const[checkedEvs,setCheckedEvs]=useState(()=>{try{return JSON.parse(localStorage.getItem("bp-checked-evs")||"[]");}catch{return[];}});
   const[showChecked,setShowChecked]=useState(false);
+  // ─── Auth State ───
+  const[user,setUser]=useState(null);
+  const[authLoading,setAuthLoading]=useState(!!fbAuth);
+  const[skipLogin,setSkipLogin]=useState(()=>!!localStorage.getItem("bp-skip-login"));
+  const[cloudSt,setCloudSt]=useState("idle"); // idle, syncing, synced, error
   const syncRef=useRef(null);
+
+  // ─── Auth Listener ───
+  useEffect(()=>{
+    if(!fbAuth){setAuthLoading(false);return;}
+    const unsub=fbAuth.onAuthStateChanged(u=>{setUser(u);setAuthLoading(false);});
+    return()=>unsub();
+  },[]);
+  const login=()=>{if(fbAuth&&fbGoogle)fbAuth.signInWithPopup(fbGoogle).catch(e=>console.error("Login error:",e));};
+  const logout=()=>{if(fbAuth)fbAuth.signOut();setSkipLogin(false);localStorage.removeItem("bp-skip-login");};
 
   // ─── Dooray Sync ───
   const syncDooray = useCallback(async (currentLocalEvents)=>{
@@ -586,14 +676,67 @@ function BizPlanner(){
     return null;
   },[]);
 
-  // ─── Init: load local + auto sync Dooray ───
+  // ─── Init: load local + cloud + Dooray ───
   useEffect(()=>{
+    if(authLoading) return; // Wait for auth to resolve
     requestNotifPermission();
-    const e=ld("bp-events",[]),t=ld("bp-todos",[]),m=ld("bp-memos",[]),c=ld("bp-contacts",[]);
+    
+    if(user && fbDb){
+      // Logged in → load from cloud
+      setCloudSt("syncing");
+      cloudLoad(user.uid).then(cloud=>{
+        if(cloud && cloud['bp-events']){
+          const ce=cloud['bp-events']||[],ct=cloud['bp-todos']||[],cm=cloud['bp-memos']||[],cc=cloud['bp-contacts']||[];
+          setEvents(ce);sv('bp-events',ce);
+          setTodos(ct);sv('bp-todos',ct);
+          setMemos(cm);sv('bp-memos',cm);
+          setContacts(cc);sv('bp-contacts',cc);
+          setCloudSt("synced");
+          setLoading(false);
+          syncDooray(ce);
+        } else {
+          // First login → upload local data to cloud
+          const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]);
+          setEvents(e);setTodos(t);setMemos(m);setContacts(c);setLoading(false);
+          cloudSaveAll(user.uid,{'bp-events':e.filter(ev=>ev.source!=='dooray'),'bp-todos':t,'bp-memos':m,'bp-contacts':c});
+          setCloudSt("synced");
+          syncDooray(e);
+        }
+      }).catch(()=>{
+        // Cloud error → fallback to local
+        const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]);
+        setEvents(e);setTodos(t);setMemos(m);setContacts(c);setLoading(false);
+        setCloudSt("error");
+        syncDooray(e);
+      });
+    } else {
+      // Not logged in → local only
+      const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]);
       setEvents(e);setTodos(t);setMemos(m);setContacts(c);setLoading(false);
-      // Auto-sync Dooray on load
       syncDooray(e);
-  },[]);
+    }
+  },[user,authLoading]);
+
+  // ─── Cloud: sync on window focus (cross-device) ───
+  useEffect(()=>{
+    if(!user||!fbDb) return;
+    const handler=async()=>{
+      setCloudSt("syncing");
+      const cloud=await cloudLoad(user.uid);
+      if(cloud){
+        if(cloud['bp-events']){const d=cloud['bp-events'];setEvents(d);sv('bp-events',d);}
+        if(cloud['bp-todos']){const d=cloud['bp-todos'];setTodos(d);sv('bp-todos',d);}
+        if(cloud['bp-memos']){const d=cloud['bp-memos'];setMemos(d);sv('bp-memos',d);}
+        if(cloud['bp-contacts']){const d=cloud['bp-contacts'];setContacts(d);sv('bp-contacts',d);}
+        syncDooray(cloud['bp-events']||[]);
+      }
+      setCloudSt("synced");
+    };
+    window.addEventListener('focus',handler);
+    // Also sync every 30s
+    const t=setInterval(handler,30000);
+    return()=>{window.removeEventListener('focus',handler);clearInterval(t);};
+  },[user,syncDooray]);
 
   // ─── Periodic sync (every 60s) ───
   useEffect(()=>{
@@ -609,7 +752,20 @@ function BizPlanner(){
 
   useEffect(()=>{const h=e=>{if(e.key==="Escape"){if(shareItem)setShareItem(null);else if(showSettings)setShowSettings(false);else if(showEF){setShowEF(false);setEditEv(null);}else if(showTF){setShowTF(false);setEditTd(null);}else if(showMF){setShowMF(false);setEditMe(null);}else if(showCF){setShowCF(false);setEditCo(null);}else if(globalSearch){setGlobalSearch(false);setSearch("");}}}; document.addEventListener("keydown",h);return()=>document.removeEventListener("keydown",h);},[shareItem,showSettings,showEF,showTF,showMF,showCF,globalSearch]);
 
-  const persist=useCallback((k,d,s)=>{s(d);sv(k,d);},[]);
+  const persist=useCallback((k,d,s)=>{
+    s(d);sv(k,d);
+    // Debounced cloud save
+    if(user&&fbDb){
+      clearTimeout(window._cloudSaveTimeout);
+      window._cloudSaveTimeout=setTimeout(()=>{
+        setCloudSt("syncing");
+        cloudSaveAll(user.uid,{
+          'bp-events':ld('bp-events',[]).filter(e=>e.source!=='dooray'),
+          'bp-todos':ld('bp-todos',[]),'bp-memos':ld('bp-memos',[]),'bp-contacts':ld('bp-contacts',[])
+        }).then(()=>setCloudSt("synced")).catch(()=>setCloudSt("error"));
+      },1500);
+    }
+  },[user]);
 
   // ─── Check/uncheck event ───
   const toggleCheck=useCallback((evId)=>{
@@ -714,8 +870,14 @@ function BizPlanner(){
 
   const tabItems=[{k:"schedule",i:"📅",l:"일정"},{k:"todo",i:"✅",l:"할일",badge:activeTd},{k:"memo",i:"📝",l:"메모"},{k:"contacts",i:"👥",l:"연락처"}];
 
+  if(authLoading)return(<div style={{display:"flex",justifyContent:"center",alignItems:"center",height:"100vh",background:"#F8FAFC"}}>
+    <div style={{textAlign:"center"}}><div style={{fontSize:40,marginBottom:10}}>📅</div><div style={{color:"#64748B",fontSize:13}}>인증 확인 중...</div></div></div>);
+
+  // Show login screen if Firebase is configured but not logged in
+  if(fbReady&&!user&&!skipLogin)return(<LoginScreen onLogin={login} onSkip={()=>{setSkipLogin(true);localStorage.setItem("bp-skip-login","1");}}/>);
+
   if(loading)return(<div style={{display:"flex",justifyContent:"center",alignItems:"center",height:"100vh",background:"#F8FAFC"}}>
-    <div style={{textAlign:"center"}}><div style={{fontSize:40,marginBottom:10}}>📅</div><div style={{color:"#64748B",fontSize:13}}>로딩 중...</div></div></div>);
+    <div style={{textAlign:"center"}}><div style={{fontSize:40,marginBottom:10}}>📅</div><div style={{color:"#64748B",fontSize:13}}>{cloudSt==="syncing"?"클라우드 동기화 중...":"로딩 중..."}</div></div></div>);
 
   return(
     <div style={{minHeight:"100vh",background:"#F1F5F9",fontFamily:"'Noto Sans KR','Pretendard',-apple-system,sans-serif",paddingBottom:76}}>
@@ -729,17 +891,30 @@ function BizPlanner(){
             <div><div style={{fontWeight:800,fontSize:15,letterSpacing:"-0.5px"}}>BizPlanner</div>
               <div style={{fontSize:8,color:"#94A3B8",fontWeight:600,letterSpacing:1.2}}>SMART BUSINESS PLANNER</div></div>
           </div>
-          <div style={{display:"flex",alignItems:"center",gap:6}}>
+          <div style={{display:"flex",alignItems:"center",gap:5}}>
             {/* Dooray Link */}
             <button onClick={()=>syncDooray(events)} style={{border:"none",background:"rgba(62,111,224,0.3)",borderRadius:6,padding:"5px 8px",cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>
               <span style={{fontSize:11}}>🔗</span>
               <span style={{fontSize:10,color:"#93C5FD",fontWeight:600}}>두레이</span>
             </button>
+            {/* Cloud Status */}
+            {user&&<div style={{display:"flex",alignItems:"center",gap:3,fontSize:9,color:cloudSt==="synced"?"#4ADE80":cloudSt==="syncing"?"#FBBF24":cloudSt==="error"?"#F87171":"#94A3B8",fontWeight:600}}>
+              <div style={{width:5,height:5,borderRadius:"50%",background:cloudSt==="synced"?"#4ADE80":cloudSt==="syncing"?"#FBBF24":cloudSt==="error"?"#F87171":"#64748B",animation:cloudSt==="syncing"?"pulse 1s infinite":"none"}}/>
+              {cloudSt==="synced"?"☁️":cloudSt==="syncing"?"⏳":"⚠️"}
+            </div>}
             {/* Sync Status */}
             <div style={{display:"flex",alignItems:"center",gap:3,fontSize:9,color:syncSt==="synced"?"#4ADE80":syncSt==="syncing"?"#FBBF24":syncSt==="error"?"#F87171":"#94A3B8",fontWeight:600}}>
               <div style={{width:5,height:5,borderRadius:"50%",background:syncSt==="synced"?"#4ADE80":syncSt==="syncing"?"#FBBF24":syncSt==="error"?"#F87171":"#64748B",animation:syncSt==="syncing"?"pulse 1s infinite":"none"}}/>
               {syncSt==="synced"?"동기화":syncSt==="syncing"?"동기화중":syncSt==="error"?"오류":"대기"}
             </div>
+            {/* User Avatar or Login */}
+            {user?
+              <button onClick={logout} style={{border:"none",background:"none",cursor:"pointer",padding:0,display:"flex",alignItems:"center",gap:4}}>
+                <img src={user.photoURL||""} style={{width:26,height:26,borderRadius:"50%",border:"2px solid rgba(255,255,255,0.3)"}} alt="" onError={e=>{e.target.style.display="none";}}/>
+              </button>
+            :fbReady?
+              <button onClick={login} style={{border:"none",background:"rgba(255,255,255,0.15)",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:10,color:"#93C5FD",fontWeight:600}}>로그인</button>
+            :null}
             <button onClick={()=>setShowSettings(true)} style={{border:"none",background:"rgba(255,255,255,0.1)",borderRadius:6,padding:"5px 7px",cursor:"pointer",fontSize:13,color:"#94A3B8"}}>⚙️</button>
           </div>
         </div>
@@ -945,7 +1120,7 @@ function BizPlanner(){
       {showMF&&<MemoForm memo={editMe} onSave={saveMe} onClose={()=>{setShowMF(false);setEditMe(null);}} onDelete={delMe}/>}
       {showCF&&<ContactForm contact={editCo} onSave={saveCo} onClose={()=>{setShowCF(false);setEditCo(null);}} onDelete={delCo}/>}
       {shareItem&&<ShareModal item={shareItem} onClose={()=>setShareItem(null)}/>}
-      {showSettings&&<SettingsModal onClose={()=>setShowSettings(false)} events={events} todos={todos} memos={memos} contacts={contacts} onRestore={restoreData} doorayStatus={doorayStatus} onDooraySync={()=>syncDooray(events)}/>}
+      {showSettings&&<SettingsModal onClose={()=>setShowSettings(false)} events={events} todos={todos} memos={memos} contacts={contacts} onRestore={restoreData} doorayStatus={doorayStatus} onDooraySync={()=>syncDooray(events)} user={user} cloudSt={cloudSt} onLogin={login} onLogout={logout} fbReady={fbReady}/>}
 
       <style>{`
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
