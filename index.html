@@ -30,19 +30,33 @@
 
 // ═══ Firebase Cloud Sync ═══
 const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyD...(본인 값)",
-  authDomain: "bizplanner-xxxxx.firebaseapp.com",
-  projectId: "bizplanner-xxxxx",
-  storageBucket: "bizplanner-xxxxx.firebasestorage.app",
-  messagingSenderId: "123456789012",
-  appId: "1:123456789012:web:abc123def456"
+  apiKey: "PASTE_YOUR_API_KEY",
+  authDomain: "PASTE_YOUR_AUTH_DOMAIN",
+  projectId: "PASTE_YOUR_PROJECT_ID",
+  storageBucket: "PASTE_YOUR_STORAGE_BUCKET",
+  messagingSenderId: "PASTE_YOUR_SENDER_ID",
+  appId: "PASTE_YOUR_APP_ID"
 };
+
+// Validate Firebase config properly
+function isFirebaseConfigValid(){
+  const c=FIREBASE_CONFIG;
+  if(!c.apiKey||!c.projectId||!c.appId) return false;
+  if(c.apiKey.includes("PASTE_YOUR")||c.apiKey.includes("본인")||c.apiKey.includes("...")) return false;
+  if(c.projectId.includes("PASTE_YOUR")||c.projectId.includes("xxxxx")) return false;
+  if(c.appId.includes("PASTE_YOUR")) return false;
+  if(c.apiKey.length<20) return false;
+  return true;
+}
 
 let fbReady = false;
 try {
-  if (FIREBASE_CONFIG.apiKey !== "PASTE_YOUR_API_KEY") {
+  if (isFirebaseConfigValid()) {
     firebase.initializeApp(FIREBASE_CONFIG);
     fbReady = true;
+    console.log("Firebase initialized successfully");
+  } else {
+    console.log("Firebase not configured - running in local mode");
   }
 } catch(e) { console.warn("Firebase init error:", e); }
 
@@ -600,10 +614,39 @@ function BizPlanner(){
   // ─── Auth Listener ───
   useEffect(()=>{
     if(!fbAuth){setAuthLoading(false);return;}
-    const unsub=fbAuth.onAuthStateChanged(u=>{setUser(u);setAuthLoading(false);});
-    return()=>unsub();
+    // Handle redirect result (for mobile login)
+    fbAuth.getRedirectResult().catch(e=>console.warn("Redirect result:",e));
+    // Give Firebase time to check persisted auth state before showing login
+    let resolved=false;
+    const unsub=fbAuth.onAuthStateChanged(u=>{
+      if(!resolved){
+        resolved=true;
+        // Small delay to prevent login screen flash
+        setTimeout(()=>{setUser(u);setAuthLoading(false);},300);
+      } else {
+        setUser(u);
+      }
+    });
+    // Safety timeout - if auth never fires, stop loading
+    const timeout=setTimeout(()=>{if(!resolved){resolved=true;setAuthLoading(false);}},3000);
+    return()=>{unsub();clearTimeout(timeout);};
   },[]);
-  const login=()=>{if(fbAuth&&fbGoogle)fbAuth.signInWithPopup(fbGoogle).catch(e=>console.error("Login error:",e));};
+  const login=()=>{
+    if(!fbAuth||!fbGoogle)return;
+    // Mobile: use redirect (popups often blocked), Desktop: use popup
+    const isMobile=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if(isMobile){
+      fbAuth.signInWithRedirect(fbGoogle).catch(e=>console.error("Login redirect error:",e));
+    } else {
+      fbAuth.signInWithPopup(fbGoogle).catch(e=>{
+        console.error("Login popup error:",e);
+        // Fallback to redirect if popup blocked
+        if(e.code==='auth/popup-blocked'||e.code==='auth/popup-closed-by-user'){
+          fbAuth.signInWithRedirect(fbGoogle);
+        }
+      });
+    }
+  };
   const logout=()=>{if(fbAuth)fbAuth.signOut();setSkipLogin(false);localStorage.removeItem("bp-skip-login");};
 
   // ─── Dooray Sync ───
