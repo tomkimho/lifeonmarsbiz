@@ -105,6 +105,16 @@ const MEMO_T = {
 };
 const ALARM_OPTS = [{v:0,l:"정시"},{v:5,l:"5분 전"},{v:10,l:"10분 전"},{v:15,l:"15분 전"},{v:30,l:"30분 전"},{v:60,l:"1시간 전"},{v:1440,l:"1일 전"}];
 const TODO_CATS = ["업무","개인","프로젝트","연구","기타"];
+const ROUTINES = [
+  {id:"exercise",label:"운동 30분 이상",icon:"💪",short:"운동"},
+  {id:"english1",label:"영어공부 1",icon:"📗",short:"영어1"},
+  {id:"english2",label:"영어공부 2",icon:"📘",short:"영어2"},
+  {id:"reading",label:"독서 30분",icon:"📚",short:"독서"},
+  {id:"writing",label:"글쓰기 1건",icon:"✍️",short:"글쓰기"},
+  {id:"networking",label:"네트워킹 메시지 3건+",icon:"💬",short:"네트워킹"},
+];
+const NEWS_API = "https://lifeonmarsbiz.vercel.app/api/news";
+const PUBMED_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils";
 const DOORAY_API = "https://lifeonmarsbiz.vercel.app/api/dooray";
 const uid = () => Date.now().toString(36)+Math.random().toString(36).substr(2,9);
 const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
@@ -589,10 +599,211 @@ function MemoForm({memo,onSave,onClose,onDelete}){
   );
 }
 
+// ─── Routine Tab ───
+function RoutineTab({routines,onToggle,today}){
+  const[view,setView]=useState("today"); // today, week, month, year
+  const todayData=routines[today]||{};
+  const done=ROUTINES.filter(r=>todayData[r.id]).length;
+  const total=ROUTINES.length;
+  const pct=total>0?Math.round(done/total*100):0;
+
+  // Stats calculator
+  const calcStats=(days)=>{
+    const result={};
+    ROUTINES.forEach(r=>{
+      let cnt=0;
+      days.forEach(d=>{if(routines[d]&&routines[d][r.id])cnt++;});
+      result[r.id]={done:cnt,total:days.length,pct:days.length>0?Math.round(cnt/days.length*100):0};
+    });
+    let totalDone=0,totalPossible=days.length*ROUTINES.length;
+    days.forEach(d=>{ROUTINES.forEach(r=>{if(routines[d]&&routines[d][r.id])totalDone++;});});
+    result._overall={done:totalDone,total:totalPossible,pct:totalPossible>0?Math.round(totalDone/totalPossible*100):0};
+    result._days=days;
+    return result;
+  };
+
+  const getDays=(type)=>{
+    const d=[];const now=new Date();
+    if(type==="week"){for(let i=6;i>=0;i--){const t=new Date(now);t.setDate(t.getDate()-i);d.push(fmt(t));}}
+    else if(type==="month"){const y=now.getFullYear(),m=now.getMonth();for(let i=1;i<=now.getDate();i++)d.push(fmt(new Date(y,m,i)));}
+    else if(type==="year"){const y=now.getFullYear();let cur=new Date(y,0,1);while(cur<=now){d.push(fmt(cur));cur=new Date(cur.getTime()+864e5);}}
+    return d;
+  };
+
+  // Streak
+  let streak=0;
+  {let d=new Date();
+    while(true){const ds=fmt(d);const rd=routines[ds];
+      if(rd&&ROUTINES.every(r=>rd[r.id])){streak++;d=new Date(d.getTime()-864e5);}
+      else break;
+    }
+  }
+
+  const stats=view!=="today"?calcStats(getDays(view)):null;
+
+  return(<div>
+    {/* Today Progress */}
+    <div style={{background:"linear-gradient(135deg,#0F172A,#1E3A5F)",borderRadius:16,padding:"16px 14px",marginBottom:12}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div><div style={{fontSize:10,fontWeight:700,color:"#94A3B8",letterSpacing:1.5}}>🔥 오늘의 루틴</div>
+          <div style={{fontSize:22,fontWeight:900,color:"#fff",marginTop:2}}>{done}/{total} <span style={{fontSize:13,color:pct===100?"#4ADE80":"#FBBF24"}}>{pct}%</span></div></div>
+        <div style={{textAlign:"center"}}>
+          <div style={{fontSize:28,fontWeight:900,color:streak>0?"#F97316":"#475569"}}>{streak}</div>
+          <div style={{fontSize:9,color:"#94A3B8",fontWeight:600}}>연속일</div></div>
+      </div>
+      {/* Progress bar */}
+      <div style={{background:"rgba(255,255,255,0.1)",borderRadius:10,height:8,overflow:"hidden"}}>
+        <div style={{width:`${pct}%`,height:"100%",background:pct===100?"linear-gradient(90deg,#4ADE80,#22C55E)":"linear-gradient(90deg,#3B82F6,#8B5CF6)",borderRadius:10,transition:"width 0.5s"}}/>
+      </div>
+      {pct===100&&<div style={{textAlign:"center",marginTop:8,fontSize:12,color:"#4ADE80",fontWeight:700}}>🎉 오늘 루틴 완료!</div>}
+    </div>
+
+    {/* Today's checklist */}
+    <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
+      {ROUTINES.map(r=>{const checked=!!todayData[r.id];return(
+        <div key={r.id} onClick={()=>onToggle(today,r.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",background:checked?"#F0FDF4":"#fff",borderRadius:12,cursor:"pointer",borderLeft:`4px solid ${checked?"#22C55E":"#E2E8F0"}`,boxShadow:"0 1px 3px rgba(0,0,0,0.04)",transition:"all 0.2s"}}>
+          <div style={{width:24,height:24,borderRadius:7,border:`2px solid ${checked?"#22C55E":"#CBD5E1"}`,background:checked?"#22C55E":"#fff",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:14,fontWeight:700,flexShrink:0,transition:"all 0.2s"}}>
+            {checked&&"✓"}</div>
+          <span style={{fontSize:18,flexShrink:0}}>{r.icon}</span>
+          <span style={{fontSize:14,fontWeight:600,color:checked?"#16A34A":"#1E293B",textDecoration:checked?"line-through":"none",flex:1}}>{r.label}</span>
+          {checked&&<span style={{fontSize:10,color:"#22C55E",fontWeight:700}}>완료</span>}
+        </div>);})}
+    </div>
+
+    {/* Stats Toggle */}
+    <div style={{display:"flex",gap:4,marginBottom:10}}>
+      {[["today","오늘"],["week","주간"],["month","월간"],["year","연간"]].map(([k,l])=>
+        <button key={k} onClick={()=>setView(k)} style={{flex:1,padding:"7px 0",borderRadius:8,border:view===k?"2px solid #1E293B":"2px solid #E2E8F0",background:view===k?"#1E293B":"#fff",color:view===k?"#fff":"#64748B",fontWeight:700,fontSize:11,cursor:"pointer"}}>{l}</button>)}
+    </div>
+
+    {/* Stats View */}
+    {stats&&<div style={{background:"#fff",borderRadius:14,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.05)"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div style={{fontSize:14,fontWeight:700,color:"#1E293B"}}>📊 {view==="week"?"주간":view==="month"?"월간":"연간"} 통계</div>
+        <div style={{fontSize:22,fontWeight:900,color:stats._overall.pct>=80?"#22C55E":stats._overall.pct>=50?"#F59E0B":"#EF4444"}}>{stats._overall.pct}%</div>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {ROUTINES.map(r=>{const s=stats[r.id];return(
+          <div key={r.id}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+              <span style={{fontSize:12,fontWeight:600,color:"#1E293B"}}>{r.icon} {r.short}</span>
+              <span style={{fontSize:11,color:"#64748B"}}>{s.done}/{s.total}일 ({s.pct}%)</span>
+            </div>
+            <div style={{background:"#F1F5F9",borderRadius:6,height:6,overflow:"hidden"}}>
+              <div style={{width:`${s.pct}%`,height:"100%",background:s.pct>=80?"#22C55E":s.pct>=50?"#F59E0B":"#EF4444",borderRadius:6,transition:"width 0.4s"}}/>
+            </div>
+          </div>);})}
+      </div>
+      {/* Heatmap for week view */}
+      {view==="week"&&<div style={{marginTop:12}}>
+        <div style={{fontSize:11,fontWeight:700,color:"#64748B",marginBottom:6}}>일별 달성</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
+          {stats._days.map(d=>{const rd=routines[d]||{};const cnt=ROUTINES.filter(r=>rd[r.id]).length;const dp=pD(d);
+            return(<div key={d} style={{textAlign:"center",padding:"4px 0",borderRadius:6,background:cnt===ROUTINES.length?"#DCFCE7":cnt>0?"#FEF3C7":"#F1F5F9"}}>
+              <div style={{fontSize:8,color:"#94A3B8"}}>{DAYS_KR[dp.getDay()]}</div>
+              <div style={{fontSize:12,fontWeight:800,color:cnt===ROUTINES.length?"#22C55E":cnt>0?"#F59E0B":"#CBD5E1"}}>{cnt}</div>
+              <div style={{fontSize:7,color:"#94A3B8"}}>{dp.getDate()}일</div>
+            </div>);})}
+        </div>
+      </div>}
+    </div>}
+  </div>);
+}
+
+// ─── News Tab ───
+function NewsTab(){
+  const[news,setNews]=useState(null);const[newsLoading,setNewsLoading]=useState(false);const[newsFilter,setNewsFilter]=useState("all");const[newsRegion,setNewsRegion]=useState("all");
+  const fetchNews=async()=>{
+    setNewsLoading(true);
+    try{
+      const r=await fetch(NEWS_API);const d=await r.json();
+      if(d.articles)setNews(d.articles);
+    }catch(e){console.error("News fetch:",e);}
+    setNewsLoading(false);
+  };
+  useEffect(()=>{fetchNews();},[]);
+  const filtered=news?news.filter(a=>(newsFilter==="all"||a.category===newsFilter)&&(newsRegion==="all"||a.region===newsRegion)):[];
+  return(<div>
+    <div style={{display:"flex",gap:4,marginBottom:8,flexWrap:"wrap"}}>
+      {[["all","전체"],["bio","바이오"],["pharma","제약"],["medical","의료"],["ai","AI"]].map(([k,l])=>
+        <button key={k} onClick={()=>setNewsFilter(k)} style={{padding:"4px 10px",borderRadius:16,border:newsFilter===k?"2px solid #1E293B":"2px solid #E2E8F0",background:newsFilter===k?"#1E293B":"#fff",color:newsFilter===k?"#fff":"#64748B",fontWeight:600,fontSize:10,cursor:"pointer"}}>{l}</button>)}
+    </div>
+    <div style={{display:"flex",gap:4,marginBottom:10}}>
+      {[["all","전체"],["kr","🇰🇷 국내"],["intl","🌍 해외"]].map(([k,l])=>
+        <button key={k} onClick={()=>setNewsRegion(k)} style={{padding:"4px 10px",borderRadius:16,border:newsRegion===k?"2px solid #3B82F6":"2px solid #E2E8F0",background:newsRegion===k?"#EFF6FF":"#fff",color:newsRegion===k?"#2563EB":"#64748B",fontWeight:600,fontSize:10,cursor:"pointer"}}>{l}</button>)}
+      <div style={{flex:1}}/>
+      <button onClick={fetchNews} style={{padding:"4px 10px",borderRadius:16,border:"2px solid #E2E8F0",background:"#fff",color:"#64748B",fontWeight:600,fontSize:10,cursor:"pointer"}}>🔄</button>
+    </div>
+    {newsLoading?<div style={{textAlign:"center",padding:"40px 0",color:"#94A3B8"}}><div style={{fontSize:28}}>📰</div><div style={{fontSize:13,marginTop:4}}>기사 로딩 중...</div></div>
+    :!news?<div style={{textAlign:"center",padding:"40px 0",color:"#94A3B8"}}><div style={{fontSize:28}}>📰</div><div style={{fontSize:13,marginTop:4}}>기사를 불러올 수 없습니다</div><div style={{fontSize:11,marginTop:4,color:"#CBD5E1"}}>api/news.js 배포가 필요합니다</div></div>
+    :filtered.length===0?<div style={{textAlign:"center",padding:"30px 0",color:"#94A3B8"}}>해당 카테고리 기사가 없습니다</div>
+    :<div style={{display:"flex",flexDirection:"column",gap:8}}>
+      {filtered.map((a,i)=>(
+        <a key={i} href={a.link} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none",background:"#fff",borderRadius:12,padding:"12px 14px",boxShadow:"0 1px 4px rgba(0,0,0,0.05)",display:"block",transition:"transform 0.15s",cursor:"pointer"}}
+          onMouseEnter={e=>e.currentTarget.style.transform="translateY(-1px)"} onMouseLeave={e=>e.currentTarget.style.transform="none"}>
+          <div style={{display:"flex",gap:6,marginBottom:6,flexWrap:"wrap"}}>
+            <span style={{fontSize:9,padding:"1px 6px",borderRadius:4,fontWeight:700,
+              background:a.category==="bio"?"#DCFCE7":a.category==="pharma"?"#DBEAFE":a.category==="medical"?"#FEF3C7":"#F3E8FF",
+              color:a.category==="bio"?"#16A34A":a.category==="pharma"?"#2563EB":a.category==="medical"?"#D97706":"#7C3AED"
+            }}>{a.category==="bio"?"바이오":a.category==="pharma"?"제약":a.category==="medical"?"의료":"AI"}</span>
+            <span style={{fontSize:9,padding:"1px 6px",borderRadius:4,fontWeight:600,background:a.region==="kr"?"#FFF1F2":"#F0F9FF",color:a.region==="kr"?"#E11D48":"#0369A1"}}>{a.region==="kr"?"🇰🇷 국내":"🌍 해외"}</span>
+            {a.source&&<span style={{fontSize:9,color:"#94A3B8"}}>{a.source}</span>}
+          </div>
+          <div style={{fontSize:14,fontWeight:700,color:"#1E293B",lineHeight:1.5,marginBottom:4,wordBreak:"keep-all"}}>{a.title}</div>
+          {a.description&&<div style={{fontSize:12,color:"#64748B",lineHeight:1.5,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{a.description}</div>}
+          <div style={{fontSize:10,color:"#94A3B8",marginTop:6}}>{a.pubDate||""}</div>
+        </a>))}
+    </div>}
+  </div>);
+}
+
+// ─── PubMed Tab ───
+function PubMedTab(){
+  const[papers,setPapers]=useState([]);const[pmLoading,setPmLoading]=useState(false);const[pmQuery,setPmQuery]=useState("drug discovery AI");
+  const queries=["drug discovery AI","multi-omics biomarker","clinical trial simulation","HDAC6 inhibitor","sarcopenia treatment","digital twin medicine"];
+  const searchPubMed=async(q)=>{
+    setPmLoading(true);setPmQuery(q);
+    try{
+      const sr=await fetch(`${PUBMED_BASE}/esearch.fcgi?db=pubmed&term=${encodeURIComponent(q)}&retmax=15&sort=date&retmode=json`);
+      const sd=await sr.json();const ids=(sd.esearchresult?.idlist||[]).join(",");
+      if(!ids){setPapers([]);setPmLoading(false);return;}
+      const dr=await fetch(`${PUBMED_BASE}/esummary.fcgi?db=pubmed&id=${ids}&retmode=json`);
+      const dd=await dr.json();
+      const ps=Object.values(dd.result||{}).filter(p=>p.uid).map(p=>({
+        pmid:p.uid,title:p.title,authors:(p.authors||[]).slice(0,3).map(a=>a.name).join(", "),
+        journal:p.source,date:p.pubdate,doi:p.elocationid||""
+      }));
+      setPapers(ps);
+    }catch(e){console.error("PubMed:",e);setPapers([]);}
+    setPmLoading(false);
+  };
+  useEffect(()=>{searchPubMed("drug discovery AI");},[]);
+  return(<div>
+    <div style={{display:"flex",gap:4,marginBottom:10,flexWrap:"wrap"}}>
+      {queries.map(q=><button key={q} onClick={()=>searchPubMed(q)} style={{padding:"4px 8px",borderRadius:16,border:pmQuery===q?"2px solid #059669":"2px solid #E2E8F0",background:pmQuery===q?"#ECFDF5":"#fff",color:pmQuery===q?"#059669":"#64748B",fontWeight:600,fontSize:9,cursor:"pointer",whiteSpace:"nowrap"}}>{q}</button>)}
+    </div>
+    {pmLoading?<div style={{textAlign:"center",padding:"40px 0",color:"#94A3B8"}}><div style={{fontSize:28}}>🔬</div><div style={{fontSize:13,marginTop:4}}>논문 검색 중...</div></div>
+    :papers.length===0?<div style={{textAlign:"center",padding:"30px 0",color:"#94A3B8"}}>검색 결과가 없습니다</div>
+    :<div style={{display:"flex",flexDirection:"column",gap:6}}>
+      {papers.map(p=>(
+        <a key={p.pmid} href={`https://pubmed.ncbi.nlm.nih.gov/${p.pmid}/`} target="_blank" rel="noopener noreferrer"
+          style={{textDecoration:"none",background:"#fff",borderRadius:12,padding:"12px 14px",borderLeft:"4px solid #059669",boxShadow:"0 1px 3px rgba(0,0,0,0.04)",display:"block"}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#1E293B",lineHeight:1.5,marginBottom:4,wordBreak:"keep-all"}}>{p.title}</div>
+          <div style={{fontSize:11,color:"#64748B",marginBottom:2}}>{p.authors}{p.authors?"...":""}</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+            <span style={{fontSize:10,color:"#059669",fontWeight:600}}>{p.journal}</span>
+            <span style={{fontSize:10,color:"#94A3B8"}}>{p.date}</span>
+            <span style={{fontSize:9,background:"#ECFDF5",color:"#059669",padding:"1px 5px",borderRadius:4,fontWeight:600}}>PMID:{p.pmid}</span>
+          </div>
+        </a>))}
+    </div>}
+  </div>);
+}
+
 // ═══════ MAIN APP ═══════
 function BizPlanner(){
   const[events,setEvents]=useState([]);const[todos,setTodos]=useState([]);const[memos,setMemos]=useState([]);const[contacts,setContacts]=useState([]);
-  const[loading,setLoading]=useState(true);const[tab,setTab]=useState("schedule");
+  const[loading,setLoading]=useState(true);const[tab,setTab]=useState("routine");
   const[curDate,setCurDate]=useState(new Date());const[selDate,setSelDate]=useState(TODAY);
   const[showEF,setShowEF]=useState(false);const[showTF,setShowTF]=useState(false);const[showMF,setShowMF]=useState(false);const[showCF,setShowCF]=useState(false);
   const[editEv,setEditEv]=useState(null);const[editTd,setEditTd]=useState(null);const[editMe,setEditMe]=useState(null);const[editCo,setEditCo]=useState(null);
@@ -602,6 +813,7 @@ function BizPlanner(){
   const[doorayStatus,setDoorayStatus]=useState(null);const[lastSync,setLastSync]=useState(null);
   const[checkedEvs,setCheckedEvs]=useState(()=>{try{return JSON.parse(localStorage.getItem("bp-checked-evs")||"[]");}catch{return[];}});
   const[showChecked,setShowChecked]=useState(false);
+  const[routines,setRoutines]=useState(()=>ld("bp-routines",{}));
   // ─── Auth State ───
   const[user,setUser]=useState(null);
   const[authLoading,setAuthLoading]=useState(!!fbAuth);
@@ -727,19 +939,20 @@ function BizPlanner(){
       setCloudSt("syncing");
       cloudLoad(user.uid).then(cloud=>{
         if(cloud && cloud['bp-events']){
-          const ce=cloud['bp-events']||[],ct=cloud['bp-todos']||[],cm=cloud['bp-memos']||[],cc=cloud['bp-contacts']||[];
+          const ce=cloud['bp-events']||[],ct=cloud['bp-todos']||[],cm=cloud['bp-memos']||[],cc=cloud['bp-contacts']||[],cr=cloud['bp-routines']||{};
           setEvents(ce);sv('bp-events',ce);
           setTodos(ct);sv('bp-todos',ct);
           setMemos(cm);sv('bp-memos',cm);
           setContacts(cc);sv('bp-contacts',cc);
+          setRoutines(cr);sv('bp-routines',cr);
           setCloudSt("synced");
           setLoading(false);
           syncDooray(ce);
         } else {
           // First login → upload local data to cloud
-          const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]);
-          setEvents(e);setTodos(t);setMemos(m);setContacts(c);setLoading(false);
-          cloudSaveAll(user.uid,{'bp-events':e.filter(ev=>ev.source!=='dooray'),'bp-todos':t,'bp-memos':m,'bp-contacts':c});
+          const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]),rr=ld('bp-routines',{});
+          setEvents(e);setTodos(t);setMemos(m);setContacts(c);setRoutines(rr);setLoading(false);
+          cloudSaveAll(user.uid,{'bp-events':e.filter(ev=>ev.source!=='dooray'),'bp-todos':t,'bp-memos':m,'bp-contacts':c,'bp-routines':rr});
           setCloudSt("synced");
           syncDooray(e);
         }
@@ -769,6 +982,7 @@ function BizPlanner(){
         if(cloud['bp-todos']){const d=cloud['bp-todos'];setTodos(d);sv('bp-todos',d);}
         if(cloud['bp-memos']){const d=cloud['bp-memos'];setMemos(d);sv('bp-memos',d);}
         if(cloud['bp-contacts']){const d=cloud['bp-contacts'];setContacts(d);sv('bp-contacts',d);}
+        if(cloud['bp-routines']){const d=cloud['bp-routines'];setRoutines(d);sv('bp-routines',d);}
         syncDooray(cloud['bp-events']||[]);
       }
       setCloudSt("synced");
@@ -802,7 +1016,8 @@ function BizPlanner(){
         setCloudSt("syncing");
         cloudSaveAll(user.uid,{
           'bp-events':ld('bp-events',[]).filter(e=>e.source!=='dooray'),
-          'bp-todos':ld('bp-todos',[]),'bp-memos':ld('bp-memos',[]),'bp-contacts':ld('bp-contacts',[])
+          'bp-todos':ld('bp-todos',[]),'bp-memos':ld('bp-memos',[]),'bp-contacts':ld('bp-contacts',[]),
+          'bp-routines':ld('bp-routines',{})
         }).then(()=>setCloudSt("synced")).catch(()=>setCloudSt("error"));
       },1500);
     }
@@ -816,6 +1031,24 @@ function BizPlanner(){
       return next;
     });
   },[]);
+
+  // ─── Routine toggle ───
+  const toggleRoutine=useCallback((date,routineId)=>{
+    setRoutines(prev=>{
+      const dayData={...prev[date]||{}};
+      dayData[routineId]=!dayData[routineId];
+      const next={...prev,[date]:dayData};
+      sv("bp-routines",next);
+      // Cloud save
+      if(user&&fbDb){
+        clearTimeout(window._routineSaveTimeout);
+        window._routineSaveTimeout=setTimeout(()=>{
+          cloudSaveAll(user.uid,{'bp-routines':next}).catch(()=>{});
+        },1000);
+      }
+      return next;
+    });
+  },[user]);
 
   // ─── Dedup events by title+date+time ───
   const dedup=(evList)=>{
@@ -909,7 +1142,8 @@ function BizPlanner(){
     contacts:contacts.filter(c=>c.name.toLowerCase().includes(search.toLowerCase())||c.company?.toLowerCase().includes(search.toLowerCase())),
   }:null;
 
-  const tabItems=[{k:"schedule",i:"📅",l:"일정"},{k:"todo",i:"✅",l:"할일",badge:activeTd},{k:"memo",i:"📝",l:"메모"},{k:"contacts",i:"👥",l:"연락처"}];
+  const routineDone=ROUTINES.filter(r=>(routines[TODAY]||{})[r.id]).length;
+  const tabItems=[{k:"routine",i:"🔥",l:"루틴",badge:routineDone<ROUTINES.length?ROUTINES.length-routineDone:0},{k:"schedule",i:"📅",l:"일정"},{k:"todo",i:"✅",l:"할일",badge:activeTd},{k:"memo",i:"📝",l:"메모"},{k:"contacts",i:"👥",l:"연락처"},{k:"news",i:"📰",l:"기사"},{k:"pubmed",i:"🔬",l:"PubMed"}];
 
   if(authLoading)return(<div style={{display:"flex",justifyContent:"center",alignItems:"center",height:"100vh",background:"#F8FAFC"}}>
     <div style={{textAlign:"center"}}><div style={{fontSize:40,marginBottom:10}}>📅</div><div style={{color:"#64748B",fontSize:13}}>인증 확인 중...</div></div></div>);
@@ -926,7 +1160,7 @@ function BizPlanner(){
 
       {/* Header */}
       <div style={{background:"linear-gradient(135deg,#0F172A,#1E293B 60%,#1E3A5F)",color:"#fff",padding:"12px 16px",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 12px rgba(0,0,0,0.2)"}}>
-        <div style={{maxWidth:600,margin:"0 auto",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div className="bp-main-content" style={{maxWidth:600,margin:"0 auto",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <div style={{width:30,height:30,borderRadius:8,background:"linear-gradient(135deg,#3B82F6,#8B5CF6)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15}}>📅</div>
             <div><div style={{fontWeight:800,fontSize:15,letterSpacing:"-0.5px"}}>BizPlanner</div>
@@ -961,7 +1195,7 @@ function BizPlanner(){
         </div>
       </div>
 
-      <div style={{maxWidth:600,margin:"0 auto",padding:"0 12px"}}>
+      <div className="bp-main-content" style={{maxWidth:600,margin:"0 auto",padding:"0 12px"}}>
 
         {/* Search */}
         <div style={{margin:"10px 0 0",position:"relative"}}>
@@ -986,14 +1220,18 @@ function BizPlanner(){
         )}
 
         {/* Tab Bar */}
-        <div style={{display:"flex",gap:2,background:"#E2E8F0",borderRadius:12,padding:2,margin:"8px 0"}}>
+        <div style={{display:"flex",gap:2,background:"#E2E8F0",borderRadius:12,padding:2,margin:"8px 0",overflowX:"auto",WebkitOverflowScrolling:"touch",scrollbarWidth:"none",msOverflowStyle:"none"}}>
           {tabItems.map(t=><button key={t.k} onClick={()=>{setTab(t.k);setSearch("");setGlobalSearch(false);}}
-            style={{flex:1,padding:"8px 0",borderRadius:10,border:"none",background:tab===t.k?"#fff":"transparent",color:tab===t.k?"#1E293B":"#64748B",
-              fontWeight:tab===t.k?700:500,fontSize:12,cursor:"pointer",transition:"all 0.2s",boxShadow:tab===t.k?"0 1px 4px rgba(0,0,0,0.08)":"none",display:"flex",alignItems:"center",justifyContent:"center",gap:3}}>
-            <span style={{fontSize:13}}>{t.i}</span> {t.l}
-            {t.badge>0&&<span style={{background:"#EF4444",color:"#fff",fontSize:9,fontWeight:700,borderRadius:8,padding:"0px 4px",minWidth:14,textAlign:"center"}}>{t.badge}</span>}
+            style={{minWidth:0,flex:"0 0 auto",padding:"7px 10px",borderRadius:10,border:"none",background:tab===t.k?"#fff":"transparent",color:tab===t.k?"#1E293B":"#64748B",
+              fontWeight:tab===t.k?700:500,fontSize:11,cursor:"pointer",transition:"all 0.2s",boxShadow:tab===t.k?"0 1px 4px rgba(0,0,0,0.08)":"none",display:"flex",alignItems:"center",justifyContent:"center",gap:2,whiteSpace:"nowrap"}}>
+            <span style={{fontSize:12}}>{t.i}</span> {t.l}
+            {t.badge>0&&<span style={{background:"#EF4444",color:"#fff",fontSize:8,fontWeight:700,borderRadius:8,padding:"0px 4px",minWidth:12,textAlign:"center"}}>{t.badge}</span>}
           </button>)}
         </div>
+
+        {/* ═══ SCHEDULE ═══ */}
+        {/* ═══ ROUTINE ═══ */}
+        {tab==="routine"&&<RoutineTab routines={routines} onToggle={toggleRoutine} today={TODAY}/>}
 
         {/* ═══ SCHEDULE ═══ */}
         {tab==="schedule"&&<>
@@ -1149,11 +1387,17 @@ function BizPlanner(){
                 </div>)}</div>
             </>}
         </>}
+
+        {/* ═══ NEWS ═══ */}
+        {tab==="news"&&<NewsTab/>}
+
+        {/* ═══ PUBMED ═══ */}
+        {tab==="pubmed"&&<PubMedTab/>}
       </div>
 
-      {/* FAB */}
-      <button onClick={()=>{if(tab==="schedule"){setEditEv(null);setShowEF(true);}else if(tab==="todo"){setEditTd(null);setShowTF(true);}else if(tab==="memo"){setEditMe(null);setShowMF(true);}else{setEditCo(null);setShowCF(true);}}}
-        style={{position:"fixed",bottom:20,right:20,width:52,height:52,borderRadius:"50%",border:"none",background:"linear-gradient(135deg,#3B82F6,#6366F1)",color:"#fff",fontSize:26,cursor:"pointer",boxShadow:"0 4px 20px rgba(59,130,246,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:90}}>+</button>
+      {/* FAB - only show for schedule/todo/memo/contacts */}
+      {["schedule","todo","memo","contacts"].includes(tab)&&<button onClick={()=>{if(tab==="schedule"){setEditEv(null);setShowEF(true);}else if(tab==="todo"){setEditTd(null);setShowTF(true);}else if(tab==="memo"){setEditMe(null);setShowMF(true);}else{setEditCo(null);setShowCF(true);}}}
+        style={{position:"fixed",bottom:20,right:20,width:52,height:52,borderRadius:"50%",border:"none",background:"linear-gradient(135deg,#3B82F6,#6366F1)",color:"#fff",fontSize:26,cursor:"pointer",boxShadow:"0 4px 20px rgba(59,130,246,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:90}}>+</button>}
 
       {/* Modals */}
       {showEF&&<EventForm event={editEv} onSave={saveEv} onClose={()=>{setShowEF(false);setEditEv(null);}} onDelete={delEv} contacts={contacts} selectedDate={selDate} onAddContact={()=>{setShowEF(false);setEditCo(null);setShowCF(true);}}/>}
@@ -1168,8 +1412,20 @@ function BizPlanner(){
         *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
         input,select,textarea,button{font-family:'Noto Sans KR',sans-serif}
         ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:3px}
+        /* Hide scrollbar on tab bar */
+        div::-webkit-scrollbar{height:0;width:0}
         @media(max-width:480px){input,textarea,select{font-size:16px!important}}
-        .sr:hover{background:#F1F5F9!important}
+        /* Tablet 10-12 inch */
+        @media(min-width:768px){
+          .bp-main-content{max-width:720px!important}
+        }
+        /* Notebook */
+        @media(min-width:1024px){
+          .bp-main-content{max-width:800px!important}
+        }
+        @media(min-width:1280px){
+          .bp-main-content{max-width:900px!important}
+        }
       `}</style>
     </div>
   );
