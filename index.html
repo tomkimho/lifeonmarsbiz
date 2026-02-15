@@ -8,11 +8,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#0F172A">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📅</text></svg>">
-  <!-- Firebase SDKs -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-  <!-- React -->
   <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
@@ -30,12 +28,12 @@
 
 // ═══ Firebase Cloud Sync ═══
 const FIREBASE_CONFIG = {
-  apiKey: "PASTE_YOUR_API_KEY",
-  authDomain: "PASTE_YOUR_AUTH_DOMAIN",
-  projectId: "PASTE_YOUR_PROJECT_ID",
-  storageBucket: "PASTE_YOUR_STORAGE_BUCKET",
-  messagingSenderId: "PASTE_YOUR_SENDER_ID",
-  appId: "PASTE_YOUR_APP_ID"
+  apiKey: "AIzaSyBq3KuweKLuND6qPrK-W2zG-ifMouZ4gSo",
+  authDomain: "bizplanner-2592b.firebaseapp.com",
+  projectId: "bizplanner-2592b",
+  storageBucket: "bizplanner-2592b.firebasestorage.app",
+  messagingSenderId: "677571477287",
+  appId: "1:677571477287:web:8fa58493c4ecc1d9d87302"
 };
 
 // Validate Firebase config properly
@@ -1188,7 +1186,6 @@ const modalCont={background:"#fff",borderRadius:18,padding:20,width:"100%",maxWi
 const attachBtnS={padding:"6px 10px",borderRadius:6,border:"2px dashed #CBD5E1",background:"#fff",color:"#64748B",fontSize:10,fontWeight:600,cursor:"pointer"};
 const searchResultS={display:"flex",alignItems:"center",gap:6,padding:"7px 8px",cursor:"pointer",borderRadius:6,fontSize:12,color:"#1E293B",borderBottom:"1px solid #F8FAFC",transition:"background 0.12s"};
 
-    // Render
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(React.createElement(BizPlanner));
   </script>
