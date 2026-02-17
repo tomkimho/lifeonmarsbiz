@@ -2,16 +2,16 @@
 // Deploy to Vercel alongside api/dooray.js
 
 const FEEDS = [
-  // Korean news
-  {url:"https://news.google.com/rss/search?q=바이오+제약+신약&hl=ko&gl=KR&ceid=KR:ko",category:"bio",region:"kr"},
-  {url:"https://news.google.com/rss/search?q=의료+디지털헬스케어&hl=ko&gl=KR&ceid=KR:ko",category:"medical",region:"kr"},
-  {url:"https://news.google.com/rss/search?q=인공지능+AI+헬스케어&hl=ko&gl=KR&ceid=KR:ko",category:"ai",region:"kr"},
-  {url:"https://news.google.com/rss/search?q=제약+임상시험+FDA&hl=ko&gl=KR&ceid=KR:ko",category:"pharma",region:"kr"},
-  // International news
-  {url:"https://news.google.com/rss/search?q=biotech+drug+discovery&hl=en&gl=US&ceid=US:en",category:"bio",region:"intl"},
-  {url:"https://news.google.com/rss/search?q=pharmaceutical+clinical+trial+FDA&hl=en&gl=US&ceid=US:en",category:"pharma",region:"intl"},
-  {url:"https://news.google.com/rss/search?q=medical+device+digital+health&hl=en&gl=US&ceid=US:en",category:"medical",region:"intl"},
-  {url:"https://news.google.com/rss/search?q=artificial+intelligence+healthcare+drug&hl=en&gl=US&ceid=US:en",category:"ai",region:"intl"},
+  // Korean news (today)
+  {url:"https://news.google.com/rss/search?q=바이오+제약+신약+when:1d&hl=ko&gl=KR&ceid=KR:ko",category:"bio",region:"kr"},
+  {url:"https://news.google.com/rss/search?q=의료+디지털헬스케어+when:1d&hl=ko&gl=KR&ceid=KR:ko",category:"medical",region:"kr"},
+  {url:"https://news.google.com/rss/search?q=인공지능+AI+헬스케어+when:1d&hl=ko&gl=KR&ceid=KR:ko",category:"ai",region:"kr"},
+  {url:"https://news.google.com/rss/search?q=제약+임상시험+FDA+when:1d&hl=ko&gl=KR&ceid=KR:ko",category:"pharma",region:"kr"},
+  // International news (today)
+  {url:"https://news.google.com/rss/search?q=biotech+drug+discovery+when:1d&hl=en&gl=US&ceid=US:en",category:"bio",region:"intl"},
+  {url:"https://news.google.com/rss/search?q=pharmaceutical+clinical+trial+FDA+when:1d&hl=en&gl=US&ceid=US:en",category:"pharma",region:"intl"},
+  {url:"https://news.google.com/rss/search?q=medical+device+digital+health+when:1d&hl=en&gl=US&ceid=US:en",category:"medical",region:"intl"},
+  {url:"https://news.google.com/rss/search?q=artificial+intelligence+healthcare+drug+when:1d&hl=en&gl=US&ceid=US:en",category:"ai",region:"intl"},
 ];
 
 function parseRSS(xml, category, region) {
@@ -42,7 +42,10 @@ function parseRSS(xml, category, region) {
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET');
+  // Cache for 30 minutes, serve stale for 1 hour
   res.setHeader('Cache-Control', 's-maxage=1800, stale-while-revalidate=3600');
+
+  const requestDate = req.query.date || new Date().toISOString().split('T')[0];
 
   try {
     const allArticles = [];
@@ -83,6 +86,7 @@ export default async function handler(req, res) {
     res.status(200).json({ 
       articles: unique.slice(0, 40),
       fetchedAt: new Date().toISOString(),
+      requestDate,
       total: unique.length
     });
   } catch (e) {
