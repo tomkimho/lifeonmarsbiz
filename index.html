@@ -712,12 +712,13 @@ function RoutineTab({routines,onToggle,today}){
 }
 
 // ─── News Tab ───
-function NewsTab(){
+function NewsTab({onSave,isItemSaved,onShare}){
   const[news,setNews]=useState(null);const[newsLoading,setNewsLoading]=useState(false);const[newsFilter,setNewsFilter]=useState("all");const[newsRegion,setNewsRegion]=useState("all");
+  const todayStr=(()=>{const d=new Date();return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일 (${DAYS_KR[d.getDay()]})`;})();
   const fetchNews=async()=>{
     setNewsLoading(true);
     try{
-      const r=await fetch(NEWS_API);const d=await r.json();
+      const r=await fetch(`${NEWS_API}?date=${fmt(new Date())}`);const d=await r.json();
       if(d.articles)setNews(d.articles);
     }catch(e){console.error("News fetch:",e);}
     setNewsLoading(false);
@@ -725,6 +726,11 @@ function NewsTab(){
   useEffect(()=>{fetchNews();},[]);
   const filtered=news?news.filter(a=>(newsFilter==="all"||a.category===newsFilter)&&(newsRegion==="all"||a.region===newsRegion)):[];
   return(<div>
+    <div style={{background:"linear-gradient(135deg,#1E293B,#334155)",borderRadius:14,padding:"14px 16px",marginBottom:12}}>
+      <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",letterSpacing:1.5}}>📰 오늘의 기사</div>
+      <div style={{fontSize:14,fontWeight:700,color:"#F1F5F9",marginTop:2}}>{todayStr}</div>
+      <div style={{fontSize:10,color:"#64748B",marginTop:2}}>바이오 · 제약 · 의료 · AI 분야</div>
+    </div>
     <div style={{display:"flex",gap:4,marginBottom:8,flexWrap:"wrap"}}>
       {[["all","전체"],["bio","바이오"],["pharma","제약"],["medical","의료"],["ai","AI"]].map(([k,l])=>
         <button key={k} onClick={()=>setNewsFilter(k)} style={{padding:"4px 10px",borderRadius:16,border:newsFilter===k?"2px solid #1E293B":"2px solid #E2E8F0",background:newsFilter===k?"#1E293B":"#fff",color:newsFilter===k?"#fff":"#64748B",fontWeight:600,fontSize:10,cursor:"pointer"}}>{l}</button>)}
@@ -739,40 +745,47 @@ function NewsTab(){
     :!news?<div style={{textAlign:"center",padding:"40px 0",color:"#94A3B8"}}><div style={{fontSize:28}}>📰</div><div style={{fontSize:13,marginTop:4}}>기사를 불러올 수 없습니다</div><div style={{fontSize:11,marginTop:4,color:"#CBD5E1"}}>api/news.js 배포가 필요합니다</div></div>
     :filtered.length===0?<div style={{textAlign:"center",padding:"30px 0",color:"#94A3B8"}}>해당 카테고리 기사가 없습니다</div>
     :<div style={{display:"flex",flexDirection:"column",gap:8}}>
-      {filtered.map((a,i)=>(
-        <a key={i} href={a.link} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none",background:"#fff",borderRadius:12,padding:"12px 14px",boxShadow:"0 1px 4px rgba(0,0,0,0.05)",display:"block",transition:"transform 0.15s",cursor:"pointer"}}
-          onMouseEnter={e=>e.currentTarget.style.transform="translateY(-1px)"} onMouseLeave={e=>e.currentTarget.style.transform="none"}>
-          <div style={{display:"flex",gap:6,marginBottom:6,flexWrap:"wrap"}}>
+      {filtered.map((a,i)=>{const saved=isItemSaved(a.link);return(
+        <div key={i} style={{background:"#fff",borderRadius:12,padding:"12px 14px",boxShadow:"0 1px 4px rgba(0,0,0,0.05)",transition:"transform 0.15s"}}>
+          <div style={{display:"flex",gap:6,marginBottom:6,flexWrap:"wrap",alignItems:"center"}}>
             <span style={{fontSize:9,padding:"1px 6px",borderRadius:4,fontWeight:700,
               background:a.category==="bio"?"#DCFCE7":a.category==="pharma"?"#DBEAFE":a.category==="medical"?"#FEF3C7":"#F3E8FF",
               color:a.category==="bio"?"#16A34A":a.category==="pharma"?"#2563EB":a.category==="medical"?"#D97706":"#7C3AED"
             }}>{a.category==="bio"?"바이오":a.category==="pharma"?"제약":a.category==="medical"?"의료":"AI"}</span>
             <span style={{fontSize:9,padding:"1px 6px",borderRadius:4,fontWeight:600,background:a.region==="kr"?"#FFF1F2":"#F0F9FF",color:a.region==="kr"?"#E11D48":"#0369A1"}}>{a.region==="kr"?"🇰🇷 국내":"🌍 해외"}</span>
             {a.source&&<span style={{fontSize:9,color:"#94A3B8"}}>{a.source}</span>}
+            <div style={{flex:1}}/>
+            <button onClick={()=>onSave({...a,type:"news"})} style={{border:"none",background:"none",cursor:"pointer",fontSize:14,padding:0,color:saved?"#F59E0B":"#CBD5E1"}}>{saved?"★":"☆"}</button>
+            <button onClick={()=>onShare(a.link,a.title)} style={{border:"none",background:"none",cursor:"pointer",fontSize:12,padding:0,color:"#94A3B8"}}>📤</button>
           </div>
-          <div style={{fontSize:14,fontWeight:700,color:"#1E293B",lineHeight:1.5,marginBottom:4,wordBreak:"keep-all"}}>{a.title}</div>
-          {a.description&&<div style={{fontSize:12,color:"#64748B",lineHeight:1.5,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{a.description}</div>}
+          <a href={a.link} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none"}}>
+            <div style={{fontSize:14,fontWeight:700,color:"#1E293B",lineHeight:1.5,marginBottom:4,wordBreak:"keep-all"}}>{a.title}</div>
+            {a.description&&<div style={{fontSize:12,color:"#64748B",lineHeight:1.5,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{a.description}</div>}
+          </a>
           <div style={{fontSize:10,color:"#94A3B8",marginTop:6}}>{a.pubDate||""}</div>
-        </a>))}
+        </div>);})}
     </div>}
   </div>);
 }
 
 // ─── PubMed Tab ───
-function PubMedTab(){
+function PubMedTab({onSave,isItemSaved,onShare}){
   const[papers,setPapers]=useState([]);const[pmLoading,setPmLoading]=useState(false);const[pmQuery,setPmQuery]=useState("drug discovery AI");
+  const todayStr=(()=>{const d=new Date();return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일 (${DAYS_KR[d.getDay()]})`;})();
   const queries=["drug discovery AI","multi-omics biomarker","clinical trial simulation","HDAC6 inhibitor","sarcopenia treatment","digital twin medicine"];
   const searchPubMed=async(q)=>{
     setPmLoading(true);setPmQuery(q);
     try{
-      const sr=await fetch(`${PUBMED_BASE}/esearch.fcgi?db=pubmed&term=${encodeURIComponent(q)}&retmax=15&sort=date&retmode=json`);
+      const dateFilter=`&mindate=${fmt(new Date(Date.now()-7*864e5)).replace(/-/g,"/")}&maxdate=${fmt(new Date()).replace(/-/g,"/")}&datetype=edat`;
+      const sr=await fetch(`${PUBMED_BASE}/esearch.fcgi?db=pubmed&term=${encodeURIComponent(q)}${dateFilter}&retmax=15&sort=date&retmode=json`);
       const sd=await sr.json();const ids=(sd.esearchresult?.idlist||[]).join(",");
       if(!ids){setPapers([]);setPmLoading(false);return;}
       const dr=await fetch(`${PUBMED_BASE}/esummary.fcgi?db=pubmed&id=${ids}&retmode=json`);
       const dd=await dr.json();
       const ps=Object.values(dd.result||{}).filter(p=>p.uid).map(p=>({
         pmid:p.uid,title:p.title,authors:(p.authors||[]).slice(0,3).map(a=>a.name).join(", "),
-        journal:p.source,date:p.pubdate,doi:p.elocationid||""
+        journal:p.source,date:p.pubdate,doi:p.elocationid||"",
+        link:`https://pubmed.ncbi.nlm.nih.gov/${p.uid}/`
       }));
       setPapers(ps);
     }catch(e){console.error("PubMed:",e);setPapers([]);}
@@ -780,23 +793,74 @@ function PubMedTab(){
   };
   useEffect(()=>{searchPubMed("drug discovery AI");},[]);
   return(<div>
+    <div style={{background:"linear-gradient(135deg,#064E3B,#065F46)",borderRadius:14,padding:"14px 16px",marginBottom:12}}>
+      <div style={{fontSize:10,fontWeight:700,color:"#6EE7B7",letterSpacing:1.5}}>🔬 최신 논문</div>
+      <div style={{fontSize:14,fontWeight:700,color:"#F1F5F9",marginTop:2}}>{todayStr}</div>
+      <div style={{fontSize:10,color:"#A7F3D0",marginTop:2}}>최근 7일 내 출판 논문</div>
+    </div>
     <div style={{display:"flex",gap:4,marginBottom:10,flexWrap:"wrap"}}>
       {queries.map(q=><button key={q} onClick={()=>searchPubMed(q)} style={{padding:"4px 8px",borderRadius:16,border:pmQuery===q?"2px solid #059669":"2px solid #E2E8F0",background:pmQuery===q?"#ECFDF5":"#fff",color:pmQuery===q?"#059669":"#64748B",fontWeight:600,fontSize:9,cursor:"pointer",whiteSpace:"nowrap"}}>{q}</button>)}
     </div>
     {pmLoading?<div style={{textAlign:"center",padding:"40px 0",color:"#94A3B8"}}><div style={{fontSize:28}}>🔬</div><div style={{fontSize:13,marginTop:4}}>논문 검색 중...</div></div>
     :papers.length===0?<div style={{textAlign:"center",padding:"30px 0",color:"#94A3B8"}}>검색 결과가 없습니다</div>
     :<div style={{display:"flex",flexDirection:"column",gap:6}}>
-      {papers.map(p=>(
-        <a key={p.pmid} href={`https://pubmed.ncbi.nlm.nih.gov/${p.pmid}/`} target="_blank" rel="noopener noreferrer"
-          style={{textDecoration:"none",background:"#fff",borderRadius:12,padding:"12px 14px",borderLeft:"4px solid #059669",boxShadow:"0 1px 3px rgba(0,0,0,0.04)",display:"block"}}>
-          <div style={{fontSize:13,fontWeight:700,color:"#1E293B",lineHeight:1.5,marginBottom:4,wordBreak:"keep-all"}}>{p.title}</div>
-          <div style={{fontSize:11,color:"#64748B",marginBottom:2}}>{p.authors}{p.authors?"...":""}</div>
-          <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-            <span style={{fontSize:10,color:"#059669",fontWeight:600}}>{p.journal}</span>
-            <span style={{fontSize:10,color:"#94A3B8"}}>{p.date}</span>
-            <span style={{fontSize:9,background:"#ECFDF5",color:"#059669",padding:"1px 5px",borderRadius:4,fontWeight:600}}>PMID:{p.pmid}</span>
+      {papers.map(p=>{const saved=isItemSaved(p.link);return(
+        <div key={p.pmid} style={{background:"#fff",borderRadius:12,padding:"12px 14px",borderLeft:"4px solid #059669",boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+            <a href={p.link} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none",flex:1,minWidth:0}}>
+              <div style={{fontSize:13,fontWeight:700,color:"#1E293B",lineHeight:1.5,marginBottom:4,wordBreak:"keep-all"}}>{p.title}</div>
+              <div style={{fontSize:11,color:"#64748B",marginBottom:2}}>{p.authors}{p.authors?"...":""}</div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+                <span style={{fontSize:10,color:"#059669",fontWeight:600}}>{p.journal}</span>
+                <span style={{fontSize:10,color:"#94A3B8"}}>{p.date}</span>
+                <span style={{fontSize:9,background:"#ECFDF5",color:"#059669",padding:"1px 5px",borderRadius:4,fontWeight:600}}>PMID:{p.pmid}</span>
+              </div>
+            </a>
+            <div style={{display:"flex",flexDirection:"column",gap:4,flexShrink:0}}>
+              <button onClick={()=>onSave({...p,type:"pubmed",category:"pubmed",region:"intl"})} style={{border:"none",background:"none",cursor:"pointer",fontSize:14,padding:0,color:saved?"#F59E0B":"#CBD5E1"}}>{saved?"★":"☆"}</button>
+              <button onClick={()=>onShare(p.link,p.title)} style={{border:"none",background:"none",cursor:"pointer",fontSize:12,padding:0,color:"#94A3B8"}}>📤</button>
+            </div>
           </div>
-        </a>))}
+        </div>);})}
+    </div>}
+  </div>);
+}
+
+// ─── Scrap Tab (Saved Items) ───
+function ScrapTab({items,onRemove,onShare}){
+  const[filter,setFilter]=useState("all");
+  const filtered=items.filter(s=>filter==="all"||s.type===filter);
+  return(<div>
+    <div style={{background:"linear-gradient(135deg,#78350F,#92400E)",borderRadius:14,padding:"14px 16px",marginBottom:12}}>
+      <div style={{fontSize:10,fontWeight:700,color:"#FDE68A",letterSpacing:1.5}}>📌 내 스크랩</div>
+      <div style={{fontSize:22,fontWeight:900,color:"#fff",marginTop:2}}>{items.length}<span style={{fontSize:13,color:"#FDE68A",marginLeft:6}}>건 저장됨</span></div>
+    </div>
+    <div style={{display:"flex",gap:4,marginBottom:10}}>
+      {[["all",`전체 (${items.length})`],["news",`📰 기사 (${items.filter(s=>s.type==="news").length})`],["pubmed",`🔬 논문 (${items.filter(s=>s.type==="pubmed").length})`]].map(([k,l])=>
+        <button key={k} onClick={()=>setFilter(k)} style={{padding:"5px 10px",borderRadius:16,border:filter===k?"2px solid #92400E":"2px solid #E2E8F0",background:filter===k?"#FEF3C7":"#fff",color:filter===k?"#92400E":"#64748B",fontWeight:600,fontSize:10,cursor:"pointer"}}>{l}</button>)}
+    </div>
+    {filtered.length===0?<div style={{textAlign:"center",padding:"40px 0",color:"#94A3B8"}}><div style={{fontSize:28}}>📌</div><div style={{fontSize:13,marginTop:4}}>저장한 항목이 없습니다</div><div style={{fontSize:11,marginTop:4,color:"#CBD5E1"}}>기사나 논문에서 ☆를 눌러 저장하세요</div></div>
+    :<div style={{display:"flex",flexDirection:"column",gap:6}}>
+      {filtered.map(s=>(
+        <div key={s.id||s.link} style={{background:"#fff",borderRadius:12,padding:"12px 14px",borderLeft:`4px solid ${s.type==="pubmed"?"#059669":"#3B82F6"}`,boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+            <a href={s.link} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none",flex:1,minWidth:0}}>
+              <div style={{display:"flex",gap:4,marginBottom:4,flexWrap:"wrap"}}>
+                <span style={{fontSize:9,padding:"1px 5px",borderRadius:4,fontWeight:700,background:s.type==="pubmed"?"#ECFDF5":"#EFF6FF",color:s.type==="pubmed"?"#059669":"#2563EB"}}>{s.type==="pubmed"?"🔬 논문":"📰 기사"}</span>
+                {s.category&&s.category!=="pubmed"&&<span style={{fontSize:9,padding:"1px 5px",borderRadius:4,fontWeight:600,background:"#F8FAFC",color:"#64748B"}}>{s.category==="bio"?"바이오":s.category==="pharma"?"제약":s.category==="medical"?"의료":s.category==="ai"?"AI":s.category}</span>}
+                {s.region&&<span style={{fontSize:9,color:"#94A3B8"}}>{s.region==="kr"?"🇰🇷":"🌍"}</span>}
+              </div>
+              <div style={{fontSize:13,fontWeight:700,color:"#1E293B",lineHeight:1.5,wordBreak:"keep-all"}}>{s.title}</div>
+              {s.journal&&<div style={{fontSize:10,color:"#059669",marginTop:2}}>{s.journal} · {s.date}</div>}
+              {s.source&&<div style={{fontSize:10,color:"#64748B",marginTop:2}}>{s.source}</div>}
+            </a>
+            <div style={{display:"flex",flexDirection:"column",gap:4,flexShrink:0}}>
+              <button onClick={()=>onShare(s.link,s.title)} style={{border:"none",background:"none",cursor:"pointer",fontSize:12,padding:0,color:"#94A3B8"}}>📤</button>
+              <button onClick={()=>onRemove(s)} style={{border:"none",background:"none",cursor:"pointer",fontSize:12,padding:0,color:"#EF4444"}}>🗑</button>
+            </div>
+          </div>
+          <div style={{fontSize:9,color:"#CBD5E1",marginTop:4}}>저장: {s.savedDate?new Date(s.savedDate).toLocaleDateString("ko-KR"):""}</div>
+        </div>))}
     </div>}
   </div>);
 }
@@ -815,6 +879,7 @@ function BizPlanner(){
   const[checkedEvs,setCheckedEvs]=useState(()=>{try{return JSON.parse(localStorage.getItem("bp-checked-evs")||"[]");}catch{return[];}});
   const[showChecked,setShowChecked]=useState(false);
   const[routines,setRoutines]=useState(()=>ld("bp-routines",{}));
+  const[savedItems,setSavedItems]=useState(()=>ld("bp-saved",[]));
   // ─── Auth State ───
   const[user,setUser]=useState(null);
   const[authLoading,setAuthLoading]=useState(!!fbAuth);
@@ -858,7 +923,15 @@ function BizPlanner(){
       });
     }
   };
-  const logout=()=>{if(fbAuth)fbAuth.signOut();setSkipLogin(false);localStorage.removeItem("bp-skip-login");};
+  const logout=()=>{
+    if(fbAuth)fbAuth.signOut();
+    setSkipLogin(false);localStorage.removeItem("bp-skip-login");
+    // Clear all state so next user gets fresh data
+    setEvents([]);setTodos([]);setMemos([]);setContacts([]);setRoutines({});setSavedItems([]);
+    // Clear localStorage for this session
+    ["bp-events","bp-todos","bp-memos","bp-contacts","bp-routines","bp-saved"].forEach(k=>localStorage.removeItem(k));
+    setCloudSt("idle");setLoading(true);
+  };
 
   // ─── Dooray Sync ───
   const syncDooray = useCallback(async (currentLocalEvents)=>{
@@ -940,34 +1013,35 @@ function BizPlanner(){
       setCloudSt("syncing");
       cloudLoad(user.uid).then(cloud=>{
         if(cloud && cloud['bp-events']){
-          const ce=cloud['bp-events']||[],ct=cloud['bp-todos']||[],cm=cloud['bp-memos']||[],cc=cloud['bp-contacts']||[],cr=cloud['bp-routines']||{};
+          const ce=cloud['bp-events']||[],ct=cloud['bp-todos']||[],cm=cloud['bp-memos']||[],cc=cloud['bp-contacts']||[],cr=cloud['bp-routines']||{},cs=cloud['bp-saved']||[];
           setEvents(ce);sv('bp-events',ce);
           setTodos(ct);sv('bp-todos',ct);
           setMemos(cm);sv('bp-memos',cm);
           setContacts(cc);sv('bp-contacts',cc);
           setRoutines(cr);sv('bp-routines',cr);
+          setSavedItems(cs);sv('bp-saved',cs);
           setCloudSt("synced");
           setLoading(false);
           syncDooray(ce);
         } else {
           // First login → upload local data to cloud
-          const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]),rr=ld('bp-routines',{});
-          setEvents(e);setTodos(t);setMemos(m);setContacts(c);setRoutines(rr);setLoading(false);
-          cloudSaveAll(user.uid,{'bp-events':e.filter(ev=>ev.source!=='dooray'),'bp-todos':t,'bp-memos':m,'bp-contacts':c,'bp-routines':rr});
+          const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]),rr=ld('bp-routines',{}),ss=ld('bp-saved',[]);
+          setEvents(e);setTodos(t);setMemos(m);setContacts(c);setRoutines(rr);setSavedItems(ss);setLoading(false);
+          cloudSaveAll(user.uid,{'bp-events':e.filter(ev=>ev.source!=='dooray'),'bp-todos':t,'bp-memos':m,'bp-contacts':c,'bp-routines':rr,'bp-saved':ss});
           setCloudSt("synced");
           syncDooray(e);
         }
       }).catch(()=>{
         // Cloud error → fallback to local
-        const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]);
-        setEvents(e);setTodos(t);setMemos(m);setContacts(c);setLoading(false);
+        const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]),rr2=ld('bp-routines',{}),ss2=ld('bp-saved',[]);
+        setEvents(e);setTodos(t);setMemos(m);setContacts(c);setRoutines(rr2);setSavedItems(ss2);setLoading(false);
         setCloudSt("error");
         syncDooray(e);
       });
     } else {
       // Not logged in → local only
-      const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]);
-      setEvents(e);setTodos(t);setMemos(m);setContacts(c);setLoading(false);
+      const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]),rr3=ld('bp-routines',{}),ss3=ld('bp-saved',[]);
+      setEvents(e);setTodos(t);setMemos(m);setContacts(c);setRoutines(rr3);setSavedItems(ss3);setLoading(false);
       syncDooray(e);
     }
   },[user,authLoading]);
@@ -984,6 +1058,7 @@ function BizPlanner(){
         if(cloud['bp-memos']){const d=cloud['bp-memos'];setMemos(d);sv('bp-memos',d);}
         if(cloud['bp-contacts']){const d=cloud['bp-contacts'];setContacts(d);sv('bp-contacts',d);}
         if(cloud['bp-routines']){const d=cloud['bp-routines'];setRoutines(d);sv('bp-routines',d);}
+        if(cloud['bp-saved']){const d=cloud['bp-saved'];setSavedItems(d);sv('bp-saved',d);}
         syncDooray(cloud['bp-events']||[]);
       }
       setCloudSt("synced");
@@ -1018,7 +1093,8 @@ function BizPlanner(){
         cloudSaveAll(user.uid,{
           'bp-events':ld('bp-events',[]).filter(e=>e.source!=='dooray'),
           'bp-todos':ld('bp-todos',[]),'bp-memos':ld('bp-memos',[]),'bp-contacts':ld('bp-contacts',[]),
-          'bp-routines':ld('bp-routines',{})
+          'bp-routines':ld('bp-routines',{}),
+          'bp-saved':ld('bp-saved',[])
         }).then(()=>setCloudSt("synced")).catch(()=>setCloudSt("error"));
       },1500);
     }
@@ -1050,6 +1126,24 @@ function BizPlanner(){
       return next;
     });
   },[user]);
+
+  // ─── Save/unsave article or paper ───
+  const saveItem=useCallback((item)=>{
+    setSavedItems(prev=>{
+      const exists=prev.find(s=>s.link===item.link);
+      let next;
+      if(exists){next=prev.filter(s=>s.link!==item.link);}
+      else{next=[{...item,savedDate:new Date().toISOString(),id:uid()},...prev];}
+      sv("bp-saved",next);
+      if(user&&fbDb){clearTimeout(window._savedSaveTimeout);window._savedSaveTimeout=setTimeout(()=>{cloudSaveAll(user.uid,{'bp-saved':next}).catch(()=>{});},1000);}
+      return next;
+    });
+  },[user]);
+  const isItemSaved=useCallback((link)=>savedItems.some(s=>s.link===link),[savedItems]);
+  const shareUrl=async(url,title)=>{
+    if(navigator.share){try{await navigator.share({title,url});return;}catch{}}
+    try{await navigator.clipboard.writeText(url);alert("URL이 복사되었습니다!");}catch{}
+  };
 
   // ─── Dedup events by title+date+time ───
   const dedup=(evList)=>{
@@ -1144,7 +1238,7 @@ function BizPlanner(){
   }:null;
 
   const routineDone=ROUTINES.filter(r=>(routines[TODAY]||{})[r.id]).length;
-  const tabItems=[{k:"routine",i:"🔥",l:"루틴",badge:routineDone<ROUTINES.length?ROUTINES.length-routineDone:0},{k:"schedule",i:"📅",l:"일정"},{k:"todo",i:"✅",l:"할일",badge:activeTd},{k:"memo",i:"📝",l:"메모"},{k:"contacts",i:"👥",l:"연락처"},{k:"news",i:"📰",l:"기사"},{k:"pubmed",i:"🔬",l:"PubMed"}];
+  const tabItems=[{k:"routine",i:"🔥",l:"루틴",badge:routineDone<ROUTINES.length?ROUTINES.length-routineDone:0},{k:"schedule",i:"📅",l:"일정"},{k:"todo",i:"✅",l:"할일",badge:activeTd},{k:"memo",i:"📝",l:"메모"},{k:"contacts",i:"👥",l:"연락처"},{k:"news",i:"📰",l:"기사"},{k:"pubmed",i:"🔬",l:"PubMed"},{k:"scrap",i:"📌",l:"스크랩",badge:savedItems.length||0}];
 
   if(authLoading)return(<div style={{display:"flex",justifyContent:"center",alignItems:"center",height:"100vh",background:"#F8FAFC"}}>
     <div style={{textAlign:"center"}}><div style={{fontSize:40,marginBottom:10}}>📅</div><div style={{color:"#64748B",fontSize:13}}>인증 확인 중...</div></div></div>);
@@ -1390,10 +1484,13 @@ function BizPlanner(){
         </>}
 
         {/* ═══ NEWS ═══ */}
-        {tab==="news"&&<NewsTab/>}
+        {tab==="news"&&<NewsTab onSave={saveItem} isItemSaved={isItemSaved} onShare={shareUrl}/>}
 
         {/* ═══ PUBMED ═══ */}
-        {tab==="pubmed"&&<PubMedTab/>}
+        {tab==="pubmed"&&<PubMedTab onSave={saveItem} isItemSaved={isItemSaved} onShare={shareUrl}/>}
+
+        {/* ═══ SCRAP ═══ */}
+        {tab==="scrap"&&<ScrapTab items={savedItems} onRemove={saveItem} onShare={shareUrl}/>}
       </div>
 
       {/* FAB - only show for schedule/todo/memo/contacts */}
