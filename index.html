@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>BizPlanner - Smart Business Planner</title>
+  <title>김호 정신차려! - Smart Business Planner</title>
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#0F172A">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📅</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%233B82F6'/><text x='32' y='44' text-anchor='middle' font-size='30' font-weight='900' font-family='Arial Black' fill='white'>KH</text></svg>">
 </head>
 <body>
   <div id="root"><div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;color:#64748B">로딩 중...</div></div>
@@ -57,6 +57,7 @@ try {
 const fbAuth = fbReady ? firebase.auth() : null;
 const fbDb = fbReady ? firebase.firestore() : null;
 const fbGoogle = fbReady ? new firebase.auth.GoogleAuthProvider() : null;
+if(fbGoogle) fbGoogle.addScope('https://www.googleapis.com/auth/contacts.readonly');
 
 async function cloudLoad(uid) {
   if (!fbDb) return null;
@@ -69,14 +70,31 @@ async function cloudSaveAll(uid, data) {
   catch(e) { console.error("Cloud save:",e); }
 }
 
+// ─── Google Contacts API ───
+async function fetchGoogleContacts(token){
+  if(!token)throw new Error("No token");
+  const resp=await fetch('https://people.googleapis.com/v1/people/me/connections?personFields=names,emailAddresses,phoneNumbers,organizations&pageSize=500&sortOrder=FIRST_NAME_ASCENDING',{headers:{Authorization:`Bearer ${token}`}});
+  if(!resp.ok)throw new Error(`API ${resp.status}`);
+  const data=await resp.json();
+  return(data.connections||[]).map(p=>{
+    const name=p.names?.[0]?.displayName||"";
+    const email=p.emailAddresses?.[0]?.value||"";
+    const phone=p.phoneNumbers?.[0]?.value||"";
+    const company=p.organizations?.[0]?.name||"";
+    const position=p.organizations?.[0]?.title||"";
+    if(!name)return null;
+    return{id:"g_"+(name+email).replace(/[^a-zA-Z0-9]/g,"").slice(0,16)+Date.now()%1000,name,email,phone,company,position,notes:"",source:"google"};
+  }).filter(Boolean);
+}
+
 // ─── Login Screen ───
 function LoginScreen({onLogin,onSkip}){
   return(
     <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#0F172A 0%,#1E3A5F 50%,#0F172A 100%)",display:"flex",justifyContent:"center",alignItems:"center",fontFamily:"'Noto Sans KR',sans-serif",padding:20}}>
       <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"/>
       <div style={{textAlign:"center",maxWidth:360,width:"100%"}}>
-        <div style={{width:80,height:80,borderRadius:20,background:"linear-gradient(135deg,#3B82F6,#8B5CF6)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:40,margin:"0 auto 20px",boxShadow:"0 8px 32px rgba(59,130,246,0.4)"}}>📅</div>
-        <h1 style={{color:"#fff",fontSize:28,fontWeight:800,marginBottom:4,letterSpacing:"-0.5px"}}>BizPlanner</h1>
+        <div style={{width:80,height:80,borderRadius:20,background:"linear-gradient(135deg,#3B82F6,#8B5CF6)",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 20px",boxShadow:"0 8px 32px rgba(59,130,246,0.4)"}}><span style={{fontSize:36,fontWeight:900,color:"#fff",letterSpacing:"-2px",fontFamily:"Arial Black,sans-serif",textShadow:"0 2px 8px rgba(0,0,0,0.3)"}}>KH</span></div>
+        <h1 style={{color:"#fff",fontSize:28,fontWeight:800,marginBottom:4,letterSpacing:"-0.5px"}}>김호 정신차려!</h1>
         <p style={{color:"#64748B",fontSize:12,marginBottom:40,letterSpacing:2}}>SMART BUSINESS PLANNER</p>
         <button onClick={onLogin} style={{display:"flex",alignItems:"center",gap:12,margin:"0 auto",padding:"14px 32px",borderRadius:12,border:"none",background:"#fff",color:"#334155",fontSize:15,fontWeight:600,cursor:"pointer",boxShadow:"0 4px 24px rgba(0,0,0,0.3)",transition:"transform 0.15s",width:"100%",maxWidth:280,justifyContent:"center"}}
           onMouseEnter={e=>e.currentTarget.style.transform="scale(1.02)"} onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}>
@@ -101,7 +119,7 @@ const MEMO_T = {
 };
 const ALARM_OPTS = [{v:0,l:"정시"},{v:5,l:"5분 전"},{v:10,l:"10분 전"},{v:15,l:"15분 전"},{v:30,l:"30분 전"},{v:60,l:"1시간 전"},{v:1440,l:"1일 전"}];
 const TODO_CATS = ["업무","개인","프로젝트","연구","기타"];
-const ROUTINES = [
+const DEFAULT_ROUTINES = [
   {id:"exercise",label:"운동 30분 이상",icon:"💪",short:"운동"},
   {id:"english1",label:"영어공부 1",icon:"📗",short:"영어1"},
   {id:"english2",label:"영어공부 2",icon:"📘",short:"영어2"},
@@ -249,15 +267,53 @@ function Dashboard({events,todos}){
 }
 
 // ─── Share Modal ───
-function ShareModal({item,onClose}){
+function ShareModal({item,onClose,contacts}){
   const[copied,setCopied]=useState(false);const[copiedContent,setCopiedContent]=useState(false);
-  const txt=`[BizPlanner] ${item.title||"공유"}\n${item.date?`📅 ${item.date}`:""}${item.time?` ⏰ ${item.time}`:""}\n${item.location?`📍 ${item.location}\n`:""}${item.attendees?`👥 ${item.attendees}\n`:""}${item.memo||item.content||item.decisions||""}`.trim();
+  const[mode,setMode]=useState(null); // null, "email", "sms"
+  const[cSearch,setCSearch]=useState("");
+  const txt=`[김호 정신차려!] ${item.title||"공유"}\n${item.date?`📅 ${item.date}`:""}${item.time?` ⏰ ${item.time}`:""}\n${item.location?`📍 ${item.location}\n`:""}${item.attendees?`👥 ${item.attendees}\n`:""}${item.memo||item.content||item.decisions||""}`.trim();
   const copy=async(t,setter)=>{try{await navigator.clipboard.writeText(t);setter(true);setTimeout(()=>setter(false),2000);}catch{}};
+  const filteredC=(contacts||[]).filter(c=>{if(!cSearch)return true;const s=cSearch.toLowerCase();return c.name.toLowerCase().includes(s)||c.company?.toLowerCase().includes(s)||c.email?.toLowerCase().includes(s);});
+  const sendEmail=(email)=>{window.open(`mailto:${email}?subject=${encodeURIComponent(item.title||"공유")}&body=${encodeURIComponent(txt)}`);};
+  const sendSms=(phone)=>{window.open(`sms:${phone}?body=${encodeURIComponent(txt)}`);};
+
+  if(mode){
+    return(
+      <div style={modalOverlay} onClick={onClose}><div style={{...modalCont,maxWidth:380}} onClick={e=>e.stopPropagation()}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <h3 style={{margin:0,fontSize:16,fontWeight:700,color:"#1E293B"}}>{mode==="email"?"📧 이메일로 보내기":"📱 문자로 보내기"}</h3>
+          <button onClick={()=>setMode(null)} style={closeS}>←</button>
+        </div>
+        <input value={cSearch} onChange={e=>setCSearch(e.target.value)} placeholder="🔍 이름, 회사, 이메일 검색..." style={{...inpS,marginBottom:8}} autoFocus/>
+        {/* Direct send without contact */}
+        <button onClick={()=>{mode==="email"?sendEmail(""):sendSms("");}} style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"2px dashed #E2E8F0",background:"#F8FAFC",color:"#64748B",fontSize:12,fontWeight:600,cursor:"pointer",marginBottom:8,textAlign:"left"}}>
+          {mode==="email"?"✉️ 받는 사람 직접 입력 (메일 앱에서)":"💬 번호 직접 입력 (문자 앱에서)"}
+        </button>
+        <div style={{maxHeight:250,overflow:"auto",display:"flex",flexDirection:"column",gap:4}}>
+          {filteredC.length===0&&<div style={{textAlign:"center",padding:16,color:"#94A3B8",fontSize:12}}>연락처가 없습니다</div>}
+          {filteredC.map(c=>{
+            const hasTarget=mode==="email"?c.email:c.phone;
+            if(!hasTarget)return null;
+            return(
+              <div key={c.id} onClick={()=>{mode==="email"?sendEmail(c.email):sendSms(c.phone);}} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:"#fff",borderRadius:10,cursor:"pointer",boxShadow:"0 1px 3px rgba(0,0,0,0.04)",border:"1px solid #F1F5F9"}}>
+                <div style={{width:32,height:32,borderRadius:8,background:c.source==="google"?"linear-gradient(135deg,#EA4335,#FBBC04)":"linear-gradient(135deg,#6366F1,#8B5CF6)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:13,flexShrink:0}}>{c.name.charAt(0)}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:600,color:"#1E293B"}}>{c.name}{c.source==="google"&&<span style={{fontSize:8,color:"#EA4335",marginLeft:4}}>G</span>}</div>
+                  <div style={{fontSize:11,color:"#64748B",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{mode==="email"?c.email:c.phone}{c.company&&` · ${c.company}`}</div>
+                </div>
+                <span style={{fontSize:16}}>{mode==="email"?"📧":"📱"}</span>
+              </div>);
+          })}
+        </div>
+      </div></div>
+    );
+  }
+
   const opts=[
-    {icon:"💬",label:"카카오톡",color:"#FEE500",tc:"#3C1E1E",action:()=>{}},
+    {icon:"📧",label:"이메일",color:"#EA4335",tc:"#fff",action:()=>setMode("email")},
+    {icon:"📱",label:"문자",color:"#4CAF50",tc:"#fff",action:()=>setMode("sms")},
+    {icon:"💬",label:"카카오톡",color:"#FEE500",tc:"#3C1E1E",action:()=>{if(navigator.share)navigator.share({title:item.title||"공유",text:txt}).catch(()=>{});else copy(txt,setCopiedContent);}},
     {icon:"📨",label:"두레이",color:"#3E6FE0",tc:"#fff",action:()=>{copy(txt,setCopiedContent);}},
-    {icon:"📱",label:"문자",color:"#4CAF50",tc:"#fff",action:()=>window.open(`sms:?body=${encodeURIComponent(txt)}`)},
-    {icon:"📧",label:"이메일",color:"#EA4335",tc:"#fff",action:()=>window.open(`mailto:?subject=${encodeURIComponent(item.title||"BizPlanner")}&body=${encodeURIComponent(txt)}`)},
   ];
   return(
     <div style={modalOverlay} onClick={onClose}><div style={{...modalCont,maxWidth:380}} onClick={e=>e.stopPropagation()}>
@@ -596,46 +652,46 @@ function MemoForm({memo,onSave,onClose,onDelete}){
 }
 
 // ─── Routine Tab ───
-function RoutineTab({routines,onToggle,today}){
-  const[view,setView]=useState("today"); // today, week, month, year
+function RoutineTab({routines,onToggle,today,items,onUpdateItems}){
+  const[view,setView]=useState("today");
+  const[editing,setEditing]=useState(false);
+  const[editItem,setEditItem]=useState(null); // null=closed, {}=new, {id:..}=edit
+  const[eiIcon,setEiIcon]=useState("⭐");const[eiLabel,setEiLabel]=useState("");const[eiShort,setEiShort]=useState("");
+  const ITEMS=items;
   const todayData=routines[today]||{};
-  const done=ROUTINES.filter(r=>todayData[r.id]).length;
-  const total=ROUTINES.length;
+  const done=ITEMS.filter(r=>todayData[r.id]).length;
+  const total=ITEMS.length;
   const pct=total>0?Math.round(done/total*100):0;
 
-  // Stats calculator
   const calcStats=(days)=>{
     const result={};
-    ROUTINES.forEach(r=>{
-      let cnt=0;
-      days.forEach(d=>{if(routines[d]&&routines[d][r.id])cnt++;});
-      result[r.id]={done:cnt,total:days.length,pct:days.length>0?Math.round(cnt/days.length*100):0};
-    });
-    let totalDone=0,totalPossible=days.length*ROUTINES.length;
-    days.forEach(d=>{ROUTINES.forEach(r=>{if(routines[d]&&routines[d][r.id])totalDone++;});});
-    result._overall={done:totalDone,total:totalPossible,pct:totalPossible>0?Math.round(totalDone/totalPossible*100):0};
-    result._days=days;
-    return result;
+    ITEMS.forEach(r=>{let cnt=0;days.forEach(d=>{if(routines[d]&&routines[d][r.id])cnt++;});result[r.id]={done:cnt,total:days.length,pct:days.length>0?Math.round(cnt/days.length*100):0};});
+    let totalDone=0,totalPossible=days.length*ITEMS.length;
+    days.forEach(d=>{ITEMS.forEach(r=>{if(routines[d]&&routines[d][r.id])totalDone++;});});
+    result._overall={done:totalDone,total:totalPossible,pct:totalPossible>0?Math.round(totalDone/totalPossible*100):0};result._days=days;return result;
   };
-
-  const getDays=(type)=>{
-    const d=[];const now=new Date();
+  const getDays=(type)=>{const d=[];const now=new Date();
     if(type==="week"){for(let i=6;i>=0;i--){const t=new Date(now);t.setDate(t.getDate()-i);d.push(fmt(t));}}
     else if(type==="month"){const y=now.getFullYear(),m=now.getMonth();for(let i=1;i<=now.getDate();i++)d.push(fmt(new Date(y,m,i)));}
     else if(type==="year"){const y=now.getFullYear();let cur=new Date(y,0,1);while(cur<=now){d.push(fmt(cur));cur=new Date(cur.getTime()+864e5);}}
-    return d;
-  };
-
-  // Streak
+    return d;};
   let streak=0;
-  {let d=new Date();
-    while(true){const ds=fmt(d);const rd=routines[ds];
-      if(rd&&ROUTINES.every(r=>rd[r.id])){streak++;d=new Date(d.getTime()-864e5);}
-      else break;
-    }
-  }
-
+  {let d=new Date();while(true){const ds=fmt(d);const rd=routines[ds];if(rd&&ITEMS.every(r=>rd[r.id])){streak++;d=new Date(d.getTime()-864e5);}else break;}}
   const stats=view!=="today"?calcStats(getDays(view)):null;
+
+  const openAdd=()=>{setEiIcon("⭐");setEiLabel("");setEiShort("");setEditItem({});};
+  const openEdit=(r)=>{setEiIcon(r.icon);setEiLabel(r.label);setEiShort(r.short);setEditItem(r);};
+  const saveItem=()=>{
+    if(!eiLabel.trim())return;
+    let next;
+    if(editItem.id){next=ITEMS.map(r=>r.id===editItem.id?{...r,icon:eiIcon,label:eiLabel.trim(),short:eiShort.trim()||eiLabel.trim().substring(0,4)}:r);}
+    else{next=[...ITEMS,{id:"r_"+Date.now(),icon:eiIcon,label:eiLabel.trim(),short:eiShort.trim()||eiLabel.trim().substring(0,4)}];}
+    onUpdateItems(next);setEditItem(null);
+  };
+  const deleteItem=(id)=>{onUpdateItems(ITEMS.filter(r=>r.id!==id));setEditItem(null);};
+  const moveItem=(idx,dir)=>{const n=[...ITEMS];const t=n[idx];n[idx]=n[idx+dir];n[idx+dir]=t;onUpdateItems(n);};
+
+  const icons=["💪","📗","📘","📚","✍️","💬","🏃","🧘","💊","🎯","📊","💻","🎵","🌍","⭐","🔥","💡","📖","🗣️","✅"];
 
   return(<div>
     {/* Today Progress */}
@@ -648,22 +704,54 @@ function RoutineTab({routines,onToggle,today}){
           <div style={{fontSize:28,fontWeight:900,color:streak>0?"#F97316":"#475569"}}>{streak}</div>
           <div style={{fontSize:9,color:"#94A3B8",fontWeight:600}}>연속일</div></div>
       </div>
-      {/* Progress bar */}
       <div style={{background:"rgba(255,255,255,0.1)",borderRadius:10,height:8,overflow:"hidden"}}>
         <div style={{width:`${pct}%`,height:"100%",background:pct===100?"linear-gradient(90deg,#4ADE80,#22C55E)":"linear-gradient(90deg,#3B82F6,#8B5CF6)",borderRadius:10,transition:"width 0.5s"}}/>
       </div>
       {pct===100&&<div style={{textAlign:"center",marginTop:8,fontSize:12,color:"#4ADE80",fontWeight:700}}>🎉 오늘 루틴 완료!</div>}
     </div>
 
-    {/* Today's checklist */}
+    {/* Edit toggle + Add button */}
+    <div style={{display:"flex",justifyContent:"flex-end",gap:6,marginBottom:8}}>
+      <button onClick={()=>setEditing(!editing)} style={{border:"none",background:editing?"#1E293B":"#F1F5F9",color:editing?"#fff":"#64748B",borderRadius:8,padding:"5px 10px",fontSize:10,fontWeight:600,cursor:"pointer"}}>{editing?"✓ 완료":"✏️ 편집"}</button>
+      {editing&&<button onClick={openAdd} style={{border:"none",background:"#3B82F6",color:"#fff",borderRadius:8,padding:"5px 10px",fontSize:10,fontWeight:600,cursor:"pointer"}}>+ 추가</button>}
+    </div>
+
+    {/* Edit Modal */}
+    {editItem!==null&&<div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.5)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setEditItem(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:20,width:"100%",maxWidth:360,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{fontSize:16,fontWeight:800,marginBottom:14}}>{editItem.id?"루틴 수정":"루틴 추가"}</div>
+        <div style={{fontSize:11,fontWeight:600,color:"#64748B",marginBottom:6}}>아이콘</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:12}}>
+          {icons.map(ic=><button key={ic} onClick={()=>setEiIcon(ic)} style={{width:32,height:32,borderRadius:8,border:eiIcon===ic?"2px solid #3B82F6":"2px solid #E2E8F0",background:eiIcon===ic?"#EFF6FF":"#fff",fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>{ic}</button>)}
+        </div>
+        <div style={{fontSize:11,fontWeight:600,color:"#64748B",marginBottom:4}}>루틴명 *</div>
+        <input value={eiLabel} onChange={e=>setEiLabel(e.target.value)} placeholder="예: 운동 30분 이상" style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"2px solid #E2E8F0",fontSize:14,marginBottom:10,boxSizing:"border-box"}}/>
+        <div style={{fontSize:11,fontWeight:600,color:"#64748B",marginBottom:4}}>짧은 이름 (통계용)</div>
+        <input value={eiShort} onChange={e=>setEiShort(e.target.value)} placeholder="예: 운동" style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"2px solid #E2E8F0",fontSize:14,marginBottom:14,boxSizing:"border-box"}}/>
+        <div style={{display:"flex",gap:8}}>
+          {editItem.id&&<button onClick={()=>deleteItem(editItem.id)} style={{padding:"10px 0",borderRadius:10,border:"none",background:"#FEE2E2",color:"#DC2626",fontSize:13,fontWeight:700,cursor:"pointer",flex:1}}>삭제</button>}
+          <button onClick={()=>setEditItem(null)} style={{padding:"10px 0",borderRadius:10,border:"2px solid #E2E8F0",background:"#fff",color:"#64748B",fontSize:13,fontWeight:600,cursor:"pointer",flex:1}}>취소</button>
+          <button onClick={saveItem} style={{padding:"10px 0",borderRadius:10,border:"none",background:"#3B82F6",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",flex:1.5}}>저장</button>
+        </div>
+      </div>
+    </div>}
+
+    {/* Checklist */}
     <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
-      {ROUTINES.map(r=>{const checked=!!todayData[r.id];return(
-        <div key={r.id} onClick={()=>onToggle(today,r.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",background:checked?"#F0FDF4":"#fff",borderRadius:12,cursor:"pointer",borderLeft:`4px solid ${checked?"#22C55E":"#E2E8F0"}`,boxShadow:"0 1px 3px rgba(0,0,0,0.04)",transition:"all 0.2s"}}>
-          <div style={{width:24,height:24,borderRadius:7,border:`2px solid ${checked?"#22C55E":"#CBD5E1"}`,background:checked?"#22C55E":"#fff",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:14,fontWeight:700,flexShrink:0,transition:"all 0.2s"}}>
-            {checked&&"✓"}</div>
-          <span style={{fontSize:18,flexShrink:0}}>{r.icon}</span>
-          <span style={{fontSize:14,fontWeight:600,color:checked?"#16A34A":"#1E293B",textDecoration:checked?"line-through":"none",flex:1}}>{r.label}</span>
-          {checked&&<span style={{fontSize:10,color:"#22C55E",fontWeight:700}}>완료</span>}
+      {ITEMS.map((r,idx)=>{const checked=!!todayData[r.id];return(
+        <div key={r.id} style={{display:"flex",alignItems:"center",gap:6}}>
+          <div onClick={()=>!editing&&onToggle(today,r.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",background:checked?"#F0FDF4":"#fff",borderRadius:12,cursor:editing?"default":"pointer",borderLeft:`4px solid ${checked?"#22C55E":"#E2E8F0"}`,boxShadow:"0 1px 3px rgba(0,0,0,0.04)",transition:"all 0.2s",flex:1,minWidth:0}}>
+            <div style={{width:24,height:24,borderRadius:7,border:`2px solid ${checked?"#22C55E":"#CBD5E1"}`,background:checked?"#22C55E":"#fff",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:14,fontWeight:700,flexShrink:0,transition:"all 0.2s"}}>
+              {checked&&"✓"}</div>
+            <span style={{fontSize:18,flexShrink:0}}>{r.icon}</span>
+            <span style={{fontSize:14,fontWeight:600,color:checked?"#16A34A":"#1E293B",textDecoration:checked?"line-through":"none",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.label}</span>
+            {checked&&!editing&&<span style={{fontSize:10,color:"#22C55E",fontWeight:700}}>완료</span>}
+          </div>
+          {editing&&<div style={{display:"flex",flexDirection:"column",gap:2,flexShrink:0}}>
+            {idx>0&&<button onClick={()=>moveItem(idx,-1)} style={{border:"none",background:"#F1F5F9",borderRadius:4,width:24,height:20,cursor:"pointer",fontSize:10,color:"#64748B"}}>▲</button>}
+            {idx<ITEMS.length-1&&<button onClick={()=>moveItem(idx,1)} style={{border:"none",background:"#F1F5F9",borderRadius:4,width:24,height:20,cursor:"pointer",fontSize:10,color:"#64748B"}}>▼</button>}
+          </div>}
+          {editing&&<button onClick={()=>openEdit(r)} style={{border:"none",background:"#EFF6FF",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:14,flexShrink:0,color:"#3B82F6"}}>✏️</button>}
         </div>);})}
     </div>
 
@@ -680,7 +768,7 @@ function RoutineTab({routines,onToggle,today}){
         <div style={{fontSize:22,fontWeight:900,color:stats._overall.pct>=80?"#22C55E":stats._overall.pct>=50?"#F59E0B":"#EF4444"}}>{stats._overall.pct}%</div>
       </div>
       <div style={{display:"flex",flexDirection:"column",gap:8}}>
-        {ROUTINES.map(r=>{const s=stats[r.id];return(
+        {ITEMS.map(r=>{const s=stats[r.id];if(!s)return null;return(
           <div key={r.id}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
               <span style={{fontSize:12,fontWeight:600,color:"#1E293B"}}>{r.icon} {r.short}</span>
@@ -691,14 +779,13 @@ function RoutineTab({routines,onToggle,today}){
             </div>
           </div>);})}
       </div>
-      {/* Heatmap for week view */}
       {view==="week"&&<div style={{marginTop:12}}>
         <div style={{fontSize:11,fontWeight:700,color:"#64748B",marginBottom:6}}>일별 달성</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
-          {stats._days.map(d=>{const rd=routines[d]||{};const cnt=ROUTINES.filter(r=>rd[r.id]).length;const dp=pD(d);
-            return(<div key={d} style={{textAlign:"center",padding:"4px 0",borderRadius:6,background:cnt===ROUTINES.length?"#DCFCE7":cnt>0?"#FEF3C7":"#F1F5F9"}}>
+          {stats._days.map(d=>{const rd=routines[d]||{};const cnt=ITEMS.filter(r=>rd[r.id]).length;const dp=pD(d);
+            return(<div key={d} style={{textAlign:"center",padding:"4px 0",borderRadius:6,background:cnt===ITEMS.length?"#DCFCE7":cnt>0?"#FEF3C7":"#F1F5F9"}}>
               <div style={{fontSize:8,color:"#94A3B8"}}>{DAYS_KR[dp.getDay()]}</div>
-              <div style={{fontSize:12,fontWeight:800,color:cnt===ROUTINES.length?"#22C55E":cnt>0?"#F59E0B":"#CBD5E1"}}>{cnt}</div>
+              <div style={{fontSize:12,fontWeight:800,color:cnt===ITEMS.length?"#22C55E":cnt>0?"#F59E0B":"#CBD5E1"}}>{cnt}</div>
               <div style={{fontSize:7,color:"#94A3B8"}}>{dp.getDate()}일</div>
             </div>);})}
         </div>
@@ -876,6 +963,7 @@ function BizPlanner(){
   const[showChecked,setShowChecked]=useState(false);
   const[routines,setRoutines]=useState(()=>ld("bp-routines",{}));
   const[savedItems,setSavedItems]=useState(()=>ld("bp-saved",[]));
+  const[routineItems,setRoutineItems]=useState(()=>ld("bp-routine-items",DEFAULT_ROUTINES));
   // ─── Auth State ───
   const[user,setUser]=useState(null);
   const[authLoading,setAuthLoading]=useState(!!fbAuth);
@@ -916,8 +1004,9 @@ function BizPlanner(){
     if(!fbAuth||!fbGoogle)return;
     // Always try popup first (most reliable across all browsers including mobile)
     setLoginPending(true);
-    fbAuth.signInWithPopup(fbGoogle).then(()=>{
+    fbAuth.signInWithPopup(fbGoogle).then((result)=>{
       setLoginPending(false);
+      if(result.credential){const t=result.credential.accessToken;if(t){sessionStorage.setItem('bp-gtoken',t);console.log("✅ Google token saved");}}
     }).catch(e=>{
       console.error("Login error:",e.code,e.message);
       setLoginPending(false);
@@ -938,9 +1027,9 @@ function BizPlanner(){
     if(fbAuth)fbAuth.signOut();
     setSkipLogin(false);localStorage.removeItem("bp-skip-login");
     // Clear all state so next user gets fresh data
-    setEvents([]);setTodos([]);setMemos([]);setContacts([]);setRoutines({});setSavedItems([]);
+    setEvents([]);setTodos([]);setMemos([]);setContacts([]);setRoutines({});setSavedItems([]);setRoutineItems(DEFAULT_ROUTINES);
     // Clear localStorage for this session
-    ["bp-events","bp-todos","bp-memos","bp-contacts","bp-routines","bp-saved"].forEach(k=>localStorage.removeItem(k));
+    ["bp-events","bp-todos","bp-memos","bp-contacts","bp-routines","bp-saved","bp-routine-items"].forEach(k=>localStorage.removeItem(k));
     setCloudSt("idle");setLoading(true);
   };
 
@@ -1024,35 +1113,36 @@ function BizPlanner(){
       setCloudSt("syncing");
       cloudLoad(user.uid).then(cloud=>{
         if(cloud && cloud['bp-events']){
-          const ce=cloud['bp-events']||[],ct=cloud['bp-todos']||[],cm=cloud['bp-memos']||[],cc=cloud['bp-contacts']||[],cr=cloud['bp-routines']||{},cs=cloud['bp-saved']||[];
+          const ce=cloud['bp-events']||[],ct=cloud['bp-todos']||[],cm=cloud['bp-memos']||[],cc=cloud['bp-contacts']||[],cr=cloud['bp-routines']||{},cs=cloud['bp-saved']||[],ci=cloud['bp-routine-items']||DEFAULT_ROUTINES;
           setEvents(ce);sv('bp-events',ce);
           setTodos(ct);sv('bp-todos',ct);
           setMemos(cm);sv('bp-memos',cm);
           setContacts(cc);sv('bp-contacts',cc);
           setRoutines(cr);sv('bp-routines',cr);
           setSavedItems(cs);sv('bp-saved',cs);
+          setRoutineItems(ci);sv('bp-routine-items',ci);
           setCloudSt("synced");
           setLoading(false);
           syncDooray(ce);
         } else {
           // First login → upload local data to cloud
-          const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]),rr=ld('bp-routines',{}),ss=ld('bp-saved',[]);
-          setEvents(e);setTodos(t);setMemos(m);setContacts(c);setRoutines(rr);setSavedItems(ss);setLoading(false);
-          cloudSaveAll(user.uid,{'bp-events':e.filter(ev=>ev.source!=='dooray'),'bp-todos':t,'bp-memos':m,'bp-contacts':c,'bp-routines':rr,'bp-saved':ss});
+          const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]),rr=ld('bp-routines',{}),ss=ld('bp-saved',[]),ri=ld('bp-routine-items',DEFAULT_ROUTINES);
+          setEvents(e);setTodos(t);setMemos(m);setContacts(c);setRoutines(rr);setSavedItems(ss);setRoutineItems(ri);setLoading(false);
+          cloudSaveAll(user.uid,{'bp-events':e.filter(ev=>ev.source!=='dooray'),'bp-todos':t,'bp-memos':m,'bp-contacts':c,'bp-routines':rr,'bp-saved':ss,'bp-routine-items':ri});
           setCloudSt("synced");
           syncDooray(e);
         }
       }).catch(()=>{
         // Cloud error → fallback to local
-        const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]),rr2=ld('bp-routines',{}),ss2=ld('bp-saved',[]);
-        setEvents(e);setTodos(t);setMemos(m);setContacts(c);setRoutines(rr2);setSavedItems(ss2);setLoading(false);
+        const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]),rr2=ld('bp-routines',{}),ss2=ld('bp-saved',[]),ri2=ld('bp-routine-items',DEFAULT_ROUTINES);
+        setEvents(e);setTodos(t);setMemos(m);setContacts(c);setRoutines(rr2);setSavedItems(ss2);setRoutineItems(ri2);setLoading(false);
         setCloudSt("error");
         syncDooray(e);
       });
     } else {
       // Not logged in → local only
-      const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]),rr3=ld('bp-routines',{}),ss3=ld('bp-saved',[]);
-      setEvents(e);setTodos(t);setMemos(m);setContacts(c);setRoutines(rr3);setSavedItems(ss3);setLoading(false);
+      const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]),rr3=ld('bp-routines',{}),ss3=ld('bp-saved',[]),ri3=ld('bp-routine-items',DEFAULT_ROUTINES);
+      setEvents(e);setTodos(t);setMemos(m);setContacts(c);setRoutines(rr3);setSavedItems(ss3);setRoutineItems(ri3);setLoading(false);
       syncDooray(e);
     }
   },[user,authLoading]);
@@ -1070,6 +1160,7 @@ function BizPlanner(){
         if(cloud['bp-contacts']){const d=cloud['bp-contacts'];setContacts(d);sv('bp-contacts',d);}
         if(cloud['bp-routines']){const d=cloud['bp-routines'];setRoutines(d);sv('bp-routines',d);}
         if(cloud['bp-saved']){const d=cloud['bp-saved'];setSavedItems(d);sv('bp-saved',d);}
+        if(cloud['bp-routine-items']){const d=cloud['bp-routine-items'];setRoutineItems(d);sv('bp-routine-items',d);}
         syncDooray(cloud['bp-events']||[]);
       }
       setCloudSt("synced");
@@ -1105,7 +1196,8 @@ function BizPlanner(){
           'bp-events':ld('bp-events',[]).filter(e=>e.source!=='dooray'),
           'bp-todos':ld('bp-todos',[]),'bp-memos':ld('bp-memos',[]),'bp-contacts':ld('bp-contacts',[]),
           'bp-routines':ld('bp-routines',{}),
-          'bp-saved':ld('bp-saved',[])
+          'bp-saved':ld('bp-saved',[]),
+          'bp-routine-items':ld('bp-routine-items',DEFAULT_ROUTINES)
         }).then(()=>setCloudSt("synced")).catch(()=>setCloudSt("error"));
       },1500);
     }
@@ -1136,6 +1228,13 @@ function BizPlanner(){
       }
       return next;
     });
+  },[user]);
+
+  // ─── Update routine items (add/edit/delete/reorder) ───
+  const updateRoutineItems=useCallback((next)=>{
+    setRoutineItems(next);
+    sv("bp-routine-items",next);
+    if(user&&fbDb){clearTimeout(window._riSaveTimeout);window._riSaveTimeout=setTimeout(()=>{cloudSaveAll(user.uid,{'bp-routine-items':next}).catch(()=>{});},1000);}
   },[user]);
 
   // ─── Save/unsave article or paper ───
@@ -1207,6 +1306,35 @@ function BizPlanner(){
   const delMe=id=>{persist("bp-memos",memos.filter(m=>m.id!==id),setMemos);setShowMF(false);setEditMe(null);};
   const saveCo=c=>{persist("bp-contacts",editCo?contacts.map(e=>e.id===c.id?c:e):[...contacts,c],setContacts);setShowCF(false);setEditCo(null);};
   const delCo=id=>{persist("bp-contacts",contacts.filter(c=>c.id!==id),setContacts);setShowCF(false);setEditCo(null);};
+  const[gImporting,setGImporting]=useState(false);const[gImportMsg,setGImportMsg]=useState("");
+  const importGoogleContacts=async()=>{
+    setGImporting(true);setGImportMsg("불러오는 중...");
+    try{
+      let token=sessionStorage.getItem('bp-gtoken');
+      if(!token&&fbAuth&&fbGoogle){
+        // Re-auth to get fresh token
+        const result=await fbAuth.signInWithPopup(fbGoogle);
+        token=result.credential?.accessToken;
+        if(token)sessionStorage.setItem('bp-gtoken',token);
+      }
+      if(!token){setGImportMsg("❌ 로그인이 필요합니다");setGImporting(false);return;}
+      const gContacts=await fetchGoogleContacts(token);
+      if(gContacts.length===0){setGImportMsg("Google 연락처가 비어있습니다");setGImporting(false);return;}
+      // Merge: skip duplicates by name+email
+      const existing=new Set(contacts.map(c=>(c.name+c.email).toLowerCase()));
+      const newOnes=gContacts.filter(g=>!existing.has((g.name+g.email).toLowerCase()));
+      const merged=[...contacts,...newOnes];
+      persist("bp-contacts",merged,setContacts);
+      setGImportMsg(`✅ ${newOnes.length}명 추가 (총 ${merged.length}명, 중복 ${gContacts.length-newOnes.length}명 제외)`);
+    }catch(e){
+      console.error("Google contacts import:",e);
+      if(e.message?.includes("401")||e.message?.includes("403")){
+        sessionStorage.removeItem('bp-gtoken');
+        setGImportMsg("❌ 권한 만료 - 다시 시도해주세요");
+      }else{setGImportMsg("❌ 가져오기 실패: "+e.message);}
+    }
+    setGImporting(false);
+  };
   const restoreData=d=>{sv("bp-events",d.events||[]);sv("bp-todos",d.todos||[]);sv("bp-memos",d.memos||[]);sv("bp-contacts",d.contacts||[]);setEvents(d.events||[]);setTodos(d.todos||[]);setMemos(d.memos||[]);setContacts(d.contacts||[]);setShowSettings(false);};
 
   // ─── Filters ───
@@ -1248,8 +1376,8 @@ function BizPlanner(){
     contacts:contacts.filter(c=>c.name.toLowerCase().includes(search.toLowerCase())||c.company?.toLowerCase().includes(search.toLowerCase())),
   }:null;
 
-  const routineDone=ROUTINES.filter(r=>(routines[TODAY]||{})[r.id]).length;
-  const tabItems=[{k:"routine",i:"🔥",l:"루틴",badge:routineDone<ROUTINES.length?ROUTINES.length-routineDone:0},{k:"schedule",i:"📅",l:"일정"},{k:"todo",i:"✅",l:"할일",badge:activeTd},{k:"memo",i:"📝",l:"메모"},{k:"contacts",i:"👥",l:"연락처"},{k:"news",i:"📰",l:"기사"},{k:"pubmed",i:"🔬",l:"PubMed"},{k:"scrap",i:"📌",l:"스크랩",badge:savedItems.length||0}];
+  const routineDone=routineItems.filter(r=>(routines[TODAY]||{})[r.id]).length;
+  const tabItems=[{k:"routine",i:"🔥",l:"루틴",badge:routineDone<routineItems.length?routineItems.length-routineDone:0},{k:"schedule",i:"📅",l:"일정"},{k:"todo",i:"✅",l:"할일",badge:activeTd},{k:"memo",i:"📝",l:"메모"},{k:"contacts",i:"👥",l:"연락처"},{k:"news",i:"📰",l:"기사"},{k:"pubmed",i:"🔬",l:"PubMed"},{k:"scrap",i:"📌",l:"스크랩",badge:savedItems.length||0}];
 
   if(authLoading)return(<div style={{display:"flex",justifyContent:"center",alignItems:"center",height:"100vh",background:"#F8FAFC"}}>
     <div style={{textAlign:"center"}}><div style={{fontSize:40,marginBottom:10}}>📅</div><div style={{color:"#64748B",fontSize:13}}>인증 확인 중...</div></div></div>);
@@ -1268,8 +1396,8 @@ function BizPlanner(){
       <div style={{background:"linear-gradient(135deg,#0F172A,#1E293B 60%,#1E3A5F)",color:"#fff",padding:"12px 16px",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 12px rgba(0,0,0,0.2)"}}>
         <div className="bp-main-content" style={{maxWidth:600,margin:"0 auto",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <div style={{width:30,height:30,borderRadius:8,background:"linear-gradient(135deg,#3B82F6,#8B5CF6)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15}}>📅</div>
-            <div><div style={{fontWeight:800,fontSize:15,letterSpacing:"-0.5px"}}>BizPlanner</div>
+            <div style={{width:30,height:30,borderRadius:8,background:"linear-gradient(135deg,#3B82F6,#8B5CF6)",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:13,fontWeight:900,color:"#fff",letterSpacing:"-1px",fontFamily:"Arial Black,sans-serif"}}>KH</span></div>
+            <div><div style={{fontWeight:800,fontSize:15,letterSpacing:"-0.5px"}}>김호 정신차려!</div>
               <div style={{fontSize:8,color:"#94A3B8",fontWeight:600,letterSpacing:1.2}}>SMART BUSINESS PLANNER</div></div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:5}}>
@@ -1338,7 +1466,7 @@ function BizPlanner(){
 
         {/* ═══ SCHEDULE ═══ */}
         {/* ═══ ROUTINE ═══ */}
-        {tab==="routine"&&<RoutineTab routines={routines} onToggle={toggleRoutine} today={TODAY}/>}
+        {tab==="routine"&&<RoutineTab routines={routines} onToggle={toggleRoutine} today={TODAY} items={routineItems} onUpdateItems={updateRoutineItems}/>}
 
         {/* ═══ SCHEDULE ═══ */}
         {tab==="schedule"&&<>
@@ -1436,6 +1564,7 @@ function BizPlanner(){
                         {overdue?`🚨${Math.abs(dBtw(td.dueDate,TODAY))}일초과`:`D-${dBtw(TODAY,td.dueDate)}`}</span>}
                     </div>
                   </div>
+                  <button onClick={e=>{e.stopPropagation();setShareItem({title:td.title,content:`[할일] ${td.title}\n우선순위: ${p.label}\n카테고리: ${td.category}${td.dueDate?`\n마감: ${td.dueDate}`:""}${td.notes?`\n메모: ${td.notes}`:""}`});}} style={{border:"none",background:"#F1F5F9",borderRadius:6,padding:"4px 6px",cursor:"pointer",fontSize:11,flexShrink:0,color:"#64748B"}}>📤</button>
                 </div>
               </div>);})}</div>}
           {todos.length>0&&<div style={{marginTop:14,background:"#fff",borderRadius:12,padding:12,boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}>
@@ -1466,6 +1595,7 @@ function BizPlanner(){
                   <span style={{fontSize:12}}>{mt.icon}</span>
                   <span style={{fontSize:8,background:mt.color+"20",color:mt.color,borderRadius:3,padding:"0px 4px",fontWeight:700}}>{mt.label}</span>
                   <span style={{fontWeight:600,fontSize:13,color:"#1E293B",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",wordBreak:"keep-all"}}>{m.title}</span>
+                  <button onClick={e=>{e.stopPropagation();setShareItem({title:m.title,date:m.date,content:`[${mt.label}] ${m.title}\n📅 ${m.date}${m.content?`\n${m.content}`:""}${m.decisions?`\n✅ 결정사항: ${m.decisions}`:""}${m.actionItems?`\n📋 액션: ${m.actionItems}`:""}`});}} style={{border:"none",background:"#F1F5F9",borderRadius:6,padding:"4px 6px",cursor:"pointer",fontSize:11,flexShrink:0,color:"#64748B"}}>📤</button>
                   <span style={{fontSize:10,color:"#94A3B8",flexShrink:0}}>{m.date}</span>
                 </div>
                 {m.content&&<div style={{fontSize:11,color:"#64748B",marginLeft:18,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{m.content}</div>}
@@ -1475,6 +1605,14 @@ function BizPlanner(){
 
         {/* ═══ CONTACTS ═══ */}
         {tab==="contacts"&&<>
+          {/* Google Contacts Import */}
+          {user&&<div style={{marginBottom:10}}>
+            <button onClick={importGoogleContacts} disabled={gImporting} style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"2px solid #E2E8F0",background:gImporting?"#F1F5F9":"#fff",color:"#1E293B",fontSize:12,fontWeight:600,cursor:gImporting?"wait":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+              <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+              {gImporting?"불러오는 중...":"📥 Google 연락처 가져오기"}
+            </button>
+            {gImportMsg&&<div style={{fontSize:11,color:gImportMsg.startsWith("✅")?"#059669":gImportMsg.startsWith("❌")?"#DC2626":"#64748B",marginTop:4,textAlign:"center",fontWeight:600}}>{gImportMsg}</div>}
+          </div>}
           {contacts.filter(c=>!tabSearch||c.name.toLowerCase().includes(tabSearch.toLowerCase())||c.company?.toLowerCase().includes(tabSearch.toLowerCase())).length===0
             ?<div style={{textAlign:"center",padding:"30px 0",color:"#94A3B8"}}><div style={{fontSize:28}}>👥</div><div style={{fontSize:13,marginTop:4}}>연락처 없음</div></div>
             :<>
@@ -1482,14 +1620,15 @@ function BizPlanner(){
             <div style={{display:"flex",flexDirection:"column",gap:6}}>
               {contacts.filter(c=>!tabSearch||c.name.toLowerCase().includes(tabSearch.toLowerCase())||c.company?.toLowerCase().includes(tabSearch.toLowerCase())).sort((a,b)=>a.name.localeCompare(b.name)).map(c=>
                 <div key={c.id} onClick={()=>{setEditCo(c);setShowCF(true);}} style={{background:"#fff",borderRadius:10,padding:"10px 12px",boxShadow:"0 1px 3px rgba(0,0,0,0.04)",cursor:"pointer",display:"flex",alignItems:"center",gap:10}}>
-                  <div style={{width:34,height:34,borderRadius:8,background:"linear-gradient(135deg,#6366F1,#8B5CF6)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:14,flexShrink:0}}>{c.name.charAt(0)}</div>
+                  <div style={{width:34,height:34,borderRadius:8,background:c.source==="google"?"linear-gradient(135deg,#EA4335,#FBBC04)":"linear-gradient(135deg,#6366F1,#8B5CF6)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:14,flexShrink:0}}>{c.name.charAt(0)}</div>
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:13,fontWeight:600,color:"#1E293B",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}{c.position&&<span style={{fontSize:10,color:"#94A3B8",fontWeight:400}}> {c.position}</span>}</div>
+                    <div style={{fontSize:13,fontWeight:600,color:"#1E293B",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}{c.position&&<span style={{fontSize:10,color:"#94A3B8",fontWeight:400}}> {c.position}</span>}{c.source==="google"&&<span style={{fontSize:8,color:"#EA4335",marginLeft:4,fontWeight:700}}>G</span>}</div>
                     <div style={{fontSize:11,color:"#64748B",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.company&&`🏢 ${c.company}`}{c.phone&&` 📱 ${c.phone}`}</div>
                   </div>
                   <div style={{display:"flex",gap:3,flexShrink:0}}>
                     {c.phone&&<a href={`tel:${c.phone}`} onClick={e=>e.stopPropagation()} style={{padding:"4px 7px",borderRadius:6,background:"#DBEAFE",fontSize:11,color:"#2563EB",textDecoration:"none"}}>📞</a>}
                     {c.email&&<a href={`mailto:${c.email}`} onClick={e=>e.stopPropagation()} style={{padding:"4px 7px",borderRadius:6,background:"#F0FDF4",fontSize:11,color:"#059669",textDecoration:"none"}}>📧</a>}
+                    {c.phone&&<a href={`sms:${c.phone}`} onClick={e=>e.stopPropagation()} style={{padding:"4px 7px",borderRadius:6,background:"#FEF3C7",fontSize:11,color:"#D97706",textDecoration:"none"}}>💬</a>}
                   </div>
                 </div>)}</div>
             </>}
@@ -1514,7 +1653,7 @@ function BizPlanner(){
       {showTF&&<TodoForm todo={editTd} onSave={saveTd} onClose={()=>{setShowTF(false);setEditTd(null);}} onDelete={delTd}/>}
       {showMF&&<MemoForm memo={editMe} onSave={saveMe} onClose={()=>{setShowMF(false);setEditMe(null);}} onDelete={delMe}/>}
       {showCF&&<ContactForm contact={editCo} onSave={saveCo} onClose={()=>{setShowCF(false);setEditCo(null);}} onDelete={delCo}/>}
-      {shareItem&&<ShareModal item={shareItem} onClose={()=>setShareItem(null)}/>}
+      {shareItem&&<ShareModal item={shareItem} onClose={()=>setShareItem(null)} contacts={contacts}/>}
       {showSettings&&<SettingsModal onClose={()=>setShowSettings(false)} events={events} todos={todos} memos={memos} contacts={contacts} onRestore={restoreData} doorayStatus={doorayStatus} onDooraySync={()=>syncDooray(events)} user={user} cloudSt={cloudSt} onLogin={login} onLogout={logout} fbReady={fbReady}/>}
 
       <style>{`
