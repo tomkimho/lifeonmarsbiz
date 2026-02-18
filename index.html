@@ -888,37 +888,50 @@ function BizPlanner(){
   const syncRef=useRef(null);
 
   // ─── Auth Listener ───
+  const[loginPending,setLoginPending]=useState(false);
   useEffect(()=>{
     if(!fbAuth){setAuthLoading(false);return;}
-    // Handle redirect result (for mobile login)
-    fbAuth.getRedirectResult().catch(e=>console.warn("Redirect result:",e));
-    // Give Firebase time to check persisted auth state before showing login
+    fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
     let resolved=false;
-    const unsub=fbAuth.onAuthStateChanged(u=>{
-      if(!resolved){
-        resolved=true;
-        // Small delay to prevent login screen flash
-        setTimeout(()=>{setUser(u);setAuthLoading(false);},300);
-      } else {
-        setUser(u);
+    const resolveAuth=(u)=>{
+      if(!resolved){resolved=true;setUser(u);setAuthLoading(false);setLoginPending(false);}
+      else{setUser(u);setLoginPending(false);}
+    };
+    // 1) Check redirect result FIRST (critical for mobile)
+    fbAuth.getRedirectResult().then(result=>{
+      if(result&&result.user){
+        console.log("✅ Redirect login:",result.user.email);
+        resolveAuth(result.user);
       }
+    }).catch(e=>{console.warn("Redirect check:",e.code||e.message);});
+    // 2) Auth state listener (covers persisted sessions + popup)
+    const unsub=fbAuth.onAuthStateChanged(u=>{
+      console.log("Auth state:",u?u.email:"none");
+      // Small delay on first load to let redirect result resolve first
+      if(!resolved)setTimeout(()=>resolveAuth(u),500);
+      else resolveAuth(u);
     });
-    // Safety timeout - if auth never fires, stop loading
-    const timeout=setTimeout(()=>{if(!resolved){resolved=true;setAuthLoading(false);}},3000);
+    // 3) Safety timeout
+    const timeout=setTimeout(()=>{if(!resolved){resolved=true;setAuthLoading(false);}},5000);
     return()=>{unsub();clearTimeout(timeout);};
   },[]);
+
   const login=()=>{
     if(!fbAuth||!fbGoogle)return;
-    // Mobile: use redirect (popups often blocked), Desktop: use popup
-    const isMobile=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    const isMobile=/iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent);
     if(isMobile){
-      fbAuth.signInWithRedirect(fbGoogle).catch(e=>console.error("Login redirect error:",e));
+      // Mobile: ALWAYS use redirect (popup unreliable on mobile browsers)
+      setLoginPending(true);
+      fbAuth.signInWithRedirect(fbGoogle).catch(e=>{
+        console.error("Redirect error:",e);setLoginPending(false);
+      });
     } else {
+      // Desktop: try popup
       fbAuth.signInWithPopup(fbGoogle).catch(e=>{
-        console.error("Login popup error:",e);
-        // Fallback to redirect if popup blocked
+        console.error("Popup error:",e.code);
         if(e.code==='auth/popup-blocked'||e.code==='auth/popup-closed-by-user'){
-          fbAuth.signInWithRedirect(fbGoogle);
+          setLoginPending(true);
+          fbAuth.signInWithRedirect(fbGoogle).catch(()=>setLoginPending(false));
         }
       });
     }
@@ -1283,7 +1296,8 @@ function BizPlanner(){
                 <img src={user.photoURL||""} style={{width:26,height:26,borderRadius:"50%",border:"2px solid rgba(255,255,255,0.3)"}} alt="" onError={e=>{e.target.style.display="none";}}/>
               </button>
             :fbReady?
-              <button onClick={login} style={{border:"none",background:"rgba(255,255,255,0.15)",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:10,color:"#93C5FD",fontWeight:600}}>로그인</button>
+              <button onClick={login} disabled={loginPending} style={{border:"none",background:loginPending?"rgba(251,191,36,0.3)":"rgba(255,255,255,0.15)",borderRadius:6,padding:"4px 8px",cursor:loginPending?"wait":"pointer",fontSize:10,color:loginPending?"#FBBF24":"#93C5FD",fontWeight:600}}>
+                {loginPending?"로그인중...":"로그인"}</button>
             :null}
             <button onClick={()=>setShowSettings(true)} style={{border:"none",background:"rgba(255,255,255,0.1)",borderRadius:6,padding:"5px 7px",cursor:"pointer",fontSize:13,color:"#94A3B8"}}>⚙️</button>
           </div>
