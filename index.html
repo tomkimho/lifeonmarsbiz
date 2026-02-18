@@ -4,23 +4,19 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>BizPlanner - Smart Business Planner</title>
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#0F172A">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📅</text></svg>">
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+</head>
+<body>
+  <div id="root"><div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;color:#64748B">로딩 중...</div></div>
+  <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore-compat.js"></script>
+  <script>if(typeof firebase!=='undefined')console.log('✅ Firebase SDK:',firebase.SDK_VERSION);else console.error('❌ Firebase SDK failed');</script>
   <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
-  <style>
-    * { margin: 0; padding: 0; }
-    body { font-family: 'Noto Sans KR', -apple-system, sans-serif; overflow-x: hidden; }
-  </style>
-</head>
-<body>
-  <div id="root"></div>
   <script type="text/babel">
     const { useState, useEffect, useCallback, useRef } = React;
 
@@ -49,12 +45,12 @@ function isFirebaseConfigValid(){
 
 let fbReady = false;
 try {
-  if (isFirebaseConfigValid()) {
-    firebase.initializeApp(FIREBASE_CONFIG);
+  if (typeof firebase !== 'undefined' && isFirebaseConfigValid()) {
+    if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
     fbReady = true;
-    console.log("Firebase initialized successfully");
+    console.log("✅ Firebase initialized");
   } else {
-    console.log("Firebase not configured - running in local mode");
+    console.log("Firebase not available - local mode");
   }
 } catch(e) { console.warn("Firebase init error:", e); }
 
@@ -891,7 +887,7 @@ function BizPlanner(){
   const[loginPending,setLoginPending]=useState(false);
   useEffect(()=>{
     if(!fbAuth){setAuthLoading(false);return;}
-    fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
+    try{fbAuth.setPersistence&&fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);}catch(e){}
     let resolved=false;
     const resolveAuth=(u)=>{
       if(!resolved){resolved=true;setUser(u);setAuthLoading(false);setLoginPending(false);}
@@ -918,23 +914,25 @@ function BizPlanner(){
 
   const login=()=>{
     if(!fbAuth||!fbGoogle)return;
-    const isMobile=/iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent);
-    if(isMobile){
-      // Mobile: ALWAYS use redirect (popup unreliable on mobile browsers)
-      setLoginPending(true);
-      fbAuth.signInWithRedirect(fbGoogle).catch(e=>{
-        console.error("Redirect error:",e);setLoginPending(false);
-      });
-    } else {
-      // Desktop: try popup
-      fbAuth.signInWithPopup(fbGoogle).catch(e=>{
-        console.error("Popup error:",e.code);
-        if(e.code==='auth/popup-blocked'||e.code==='auth/popup-closed-by-user'){
-          setLoginPending(true);
-          fbAuth.signInWithRedirect(fbGoogle).catch(()=>setLoginPending(false));
-        }
-      });
-    }
+    // Always try popup first (most reliable across all browsers including mobile)
+    setLoginPending(true);
+    fbAuth.signInWithPopup(fbGoogle).then(()=>{
+      setLoginPending(false);
+    }).catch(e=>{
+      console.error("Login error:",e.code,e.message);
+      setLoginPending(false);
+      // If popup failed, try redirect as last resort
+      if(e.code==='auth/popup-blocked'){
+        alert("팝업이 차단되었습니다. 팝업을 허용해주세요.");
+      } else if(e.code==='auth/popup-closed-by-user'){
+        // User closed - do nothing
+      } else if(e.code==='auth/cancelled-popup-request'){
+        // Another popup was opened - do nothing
+      } else {
+        // Unknown error - try redirect
+        fbAuth.signInWithRedirect(fbGoogle).catch(()=>{});
+      }
+    });
   };
   const logout=()=>{
     if(fbAuth)fbAuth.signOut();
