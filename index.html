@@ -956,6 +956,7 @@ function BizPlanner(){
   const[showEF,setShowEF]=useState(false);const[showTF,setShowTF]=useState(false);const[showMF,setShowMF]=useState(false);const[showCF,setShowCF]=useState(false);
   const[editEv,setEditEv]=useState(null);const[editTd,setEditTd]=useState(null);const[editMe,setEditMe]=useState(null);const[editCo,setEditCo]=useState(null);
   const[shareItem,setShareItem]=useState(null);const[showSettings,setShowSettings]=useState(false);
+  const cloudOkRef=useRef(false); // SAFETY: only allow cloud writes after successful cloud load
   const[search,setSearch]=useState("");const[todoFilt,setTodoFilt]=useState("all");const[memoFilt,setMemoFilt]=useState("all");
   const[todoSort,setTodoSort]=useState("priority");const[syncSt,setSyncSt]=useState("idle");const[globalSearch,setGlobalSearch]=useState(false);
   const[doorayStatus,setDoorayStatus]=useState(null);const[lastSync,setLastSync]=useState(null);
@@ -1025,6 +1026,7 @@ function BizPlanner(){
   };
   const logout=()=>{
     if(fbAuth)fbAuth.signOut();
+    cloudOkRef.current=false; // prevent any pending saves
     setSkipLogin(false);localStorage.removeItem("bp-skip-login");
     // Clear all state so next user gets fresh data
     setEvents([]);setTodos([]);setMemos([]);setContacts([]);setRoutines({});setSavedItems([]);setRoutineItems(DEFAULT_ROUTINES);
@@ -1112,7 +1114,8 @@ function BizPlanner(){
       // Logged in → load from cloud
       setCloudSt("syncing");
       cloudLoad(user.uid).then(cloud=>{
-        if(cloud && cloud['bp-events']){
+        if(cloud && Object.keys(cloud).length>1){
+          // Cloud has data → load it
           const ce=cloud['bp-events']||[],ct=cloud['bp-todos']||[],cm=cloud['bp-memos']||[],cc=cloud['bp-contacts']||[],cr=cloud['bp-routines']||{},cs=cloud['bp-saved']||[],ci=cloud['bp-routine-items']||DEFAULT_ROUTINES;
           setEvents(ce);sv('bp-events',ce);
           setTodos(ct);sv('bp-todos',ct);
@@ -1121,21 +1124,34 @@ function BizPlanner(){
           setRoutines(cr);sv('bp-routines',cr);
           setSavedItems(cs);sv('bp-saved',cs);
           setRoutineItems(ci);sv('bp-routine-items',ci);
+          cloudOkRef.current=true;
           setCloudSt("synced");
           setLoading(false);
           syncDooray(ce);
-        } else {
-          // First login → upload local data to cloud
+        } else if(cloud===null){
+          // No cloud doc at all → truly first login, upload local data
           const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]),rr=ld('bp-routines',{}),ss=ld('bp-saved',[]),ri=ld('bp-routine-items',DEFAULT_ROUTINES);
           setEvents(e);setTodos(t);setMemos(m);setContacts(c);setRoutines(rr);setSavedItems(ss);setRoutineItems(ri);setLoading(false);
-          cloudSaveAll(user.uid,{'bp-events':e.filter(ev=>ev.source!=='dooray'),'bp-todos':t,'bp-memos':m,'bp-contacts':c,'bp-routines':rr,'bp-saved':ss,'bp-routine-items':ri});
+          // Only upload if there's actual data
+          if(e.length||t.length||m.length||c.length){
+            cloudSaveAll(user.uid,{'bp-events':e.filter(ev=>ev.source!=='dooray'),'bp-todos':t,'bp-memos':m,'bp-contacts':c,'bp-routines':rr,'bp-saved':ss,'bp-routine-items':ri});
+          }
+          cloudOkRef.current=true;
           setCloudSt("synced");
           syncDooray(e);
+        } else {
+          // Cloud doc exists but might be empty → still load, allow writes
+          const ce=cloud['bp-events']||[],ct=cloud['bp-todos']||[],cm=cloud['bp-memos']||[],cc=cloud['bp-contacts']||[],cr=cloud['bp-routines']||{},cs=cloud['bp-saved']||[],ci=cloud['bp-routine-items']||DEFAULT_ROUTINES;
+          setEvents(ce);sv('bp-events',ce);setTodos(ct);sv('bp-todos',ct);setMemos(cm);sv('bp-memos',cm);setContacts(cc);sv('bp-contacts',cc);setRoutines(cr);sv('bp-routines',cr);setSavedItems(cs);sv('bp-saved',cs);setRoutineItems(ci);sv('bp-routine-items',ci);
+          cloudOkRef.current=true;
+          setCloudSt("synced");setLoading(false);syncDooray(ce);
         }
-      }).catch(()=>{
-        // Cloud error → fallback to local
+      }).catch((err)=>{
+        console.error("Cloud load failed:",err);
+        // Cloud error → load local BUT DO NOT allow cloud writes (prevent overwrite!)
         const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]),rr2=ld('bp-routines',{}),ss2=ld('bp-saved',[]),ri2=ld('bp-routine-items',DEFAULT_ROUTINES);
         setEvents(e);setTodos(t);setMemos(m);setContacts(c);setRoutines(rr2);setSavedItems(ss2);setRoutineItems(ri2);setLoading(false);
+        cloudOkRef.current=false; // SAFETY: do NOT write to cloud
         setCloudSt("error");
         syncDooray(e);
       });
@@ -1149,7 +1165,7 @@ function BizPlanner(){
 
   // ─── Cloud: sync on window focus (cross-device) ───
   useEffect(()=>{
-    if(!user||!fbDb) return;
+    if(!user||!fbDb||!cloudOkRef.current) return;
     const handler=async()=>{
       setCloudSt("syncing");
       const cloud=await cloudLoad(user.uid);
@@ -1187,8 +1203,8 @@ function BizPlanner(){
 
   const persist=useCallback((k,d,s)=>{
     s(d);sv(k,d);
-    // Debounced cloud save
-    if(user&&fbDb){
+    // Debounced cloud save - ONLY if cloud was successfully loaded
+    if(user&&fbDb&&cloudOkRef.current){
       clearTimeout(window._cloudSaveTimeout);
       window._cloudSaveTimeout=setTimeout(()=>{
         setCloudSt("syncing");
@@ -1219,8 +1235,8 @@ function BizPlanner(){
       dayData[routineId]=!dayData[routineId];
       const next={...prev,[date]:dayData};
       sv("bp-routines",next);
-      // Cloud save
-      if(user&&fbDb){
+      // Cloud save - only if cloud loaded OK
+      if(user&&fbDb&&cloudOkRef.current){
         clearTimeout(window._routineSaveTimeout);
         window._routineSaveTimeout=setTimeout(()=>{
           cloudSaveAll(user.uid,{'bp-routines':next}).catch(()=>{});
@@ -1234,7 +1250,7 @@ function BizPlanner(){
   const updateRoutineItems=useCallback((next)=>{
     setRoutineItems(next);
     sv("bp-routine-items",next);
-    if(user&&fbDb){clearTimeout(window._riSaveTimeout);window._riSaveTimeout=setTimeout(()=>{cloudSaveAll(user.uid,{'bp-routine-items':next}).catch(()=>{});},1000);}
+    if(user&&fbDb&&cloudOkRef.current){clearTimeout(window._riSaveTimeout);window._riSaveTimeout=setTimeout(()=>{cloudSaveAll(user.uid,{'bp-routine-items':next}).catch(()=>{});},1000);}
   },[user]);
 
   // ─── Save/unsave article or paper ───
@@ -1245,7 +1261,7 @@ function BizPlanner(){
       if(exists){next=prev.filter(s=>s.link!==item.link);}
       else{next=[{...item,savedDate:new Date().toISOString(),id:uid()},...prev];}
       sv("bp-saved",next);
-      if(user&&fbDb){clearTimeout(window._savedSaveTimeout);window._savedSaveTimeout=setTimeout(()=>{cloudSaveAll(user.uid,{'bp-saved':next}).catch(()=>{});},1000);}
+      if(user&&fbDb&&cloudOkRef.current){clearTimeout(window._savedSaveTimeout);window._savedSaveTimeout=setTimeout(()=>{cloudSaveAll(user.uid,{'bp-saved':next}).catch(()=>{});},1000);}
       return next;
     });
   },[user]);
