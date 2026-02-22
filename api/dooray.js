@@ -76,18 +76,18 @@ module.exports = async function handler(req, res) {
     if (action === "list") {
       var from = req.query.from || new Date().toISOString().split("T")[0];
       var to = req.query.to || new Date(Date.now() + 90 * 86400000).toISOString().split("T")[0];
-      var size = parseInt(req.query.size) || 200;
+      var DOORAY_PAGE_SIZE = 50; // Dooray API hard limit
       
       // Fetch with pagination to get ALL events in range
       var allRawEvents = [];
       var page = 0;
       var hasMore = true;
       
-      while (hasMore && page < 10) { // max 10 pages safety
+      while (hasMore && page < 10) { // max 10 pages = 500 events safety
         var url = DOORAY_BASE + "/calendar/v1/calendars/*/events?calendarIds=" + cid 
           + "&fromDate=" + from + "T00:00:00%2B09:00"
           + "&toDate=" + to + "T23:59:59%2B09:00"
-          + "&size=" + size
+          + "&size=" + DOORAY_PAGE_SIZE
           + "&page=" + page;
         
         var response = await fetch(url, { headers: hdrs });
@@ -100,8 +100,8 @@ module.exports = async function handler(req, res) {
         var batch = data.result || [];
         allRawEvents = allRawEvents.concat(batch);
         
-        // If we got fewer than requested size, no more pages
-        if (batch.length < size) {
+        // Dooray returns max 50 per page. If less than 50, we got all events
+        if (batch.length < DOORAY_PAGE_SIZE) {
           hasMore = false;
         } else {
           page++;
