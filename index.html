@@ -1213,8 +1213,8 @@ function BizPlanner(){
     try {
       setSyncSt("syncing");
       const now = new Date();
-      const from = fmt(new Date(now.getFullYear(), now.getMonth(), 1));
-      const to = fmt(new Date(now.getFullYear(), now.getMonth()+2, 0));
+      const from = fmt(now); // today
+      const to = fmt(new Date(now.getFullYear(), now.getMonth()+2, 0)); // ~2 months ahead
       const data = await doorayFetch("list",{from,to,size:200});
       if(!data || !data.events) { setSyncSt("error"); return currentLocalEvents; }
       
@@ -1222,8 +1222,9 @@ function BizPlanner(){
       const status = await doorayFetch("status");
       if(status) setDoorayStatus(status);
       
-      // Merge: keep local events, add/update dooray events
+      // Merge: keep local events + past dooray events, replace current/future dooray events
       const localOnly = (currentLocalEvents||[]).filter(e=>e.source!=="dooray");
+      const pastDooray = (currentLocalEvents||[]).filter(e=>e.source==="dooray" && e.date < from);
       const doorayEvs = data.events.map(de=>({
         ...de,
         source:"dooray",
@@ -1232,7 +1233,7 @@ function BizPlanner(){
         category: de.category || "meeting",
       }));
       
-      const merged = [...localOnly, ...doorayEvs];
+      const merged = [...localOnly, ...pastDooray, ...doorayEvs];
       sv("bp-events", merged);
       setEvents(merged);
       setSyncSt("synced");
