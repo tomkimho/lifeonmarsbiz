@@ -1,4 +1,4 @@
-// Dooray Calendar API Proxy v4 - Final
+// Dooray Calendar API Proxy v5 - Pagination fix
 module.exports = async function handler(req, res) {
   var DOORAY_BASE = "https://api.dooray.com";
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -31,6 +31,27 @@ module.exports = async function handler(req, res) {
     } catch (e) { return null; }
   }
 
+  function parseEvent(ev) {
+    var sd = ev.startedAt || "";
+    var ed = ev.endedAt || "";
+    return {
+      id: "dooray-" + ev.id,
+      doorayId: ev.id,
+      title: ev.subject || ev.summary || ev.title || "",
+      date: sd ? sd.substring(0, 10) : "",
+      endDate: ed ? ed.substring(0, 10) : "",
+      time: sd ? sd.substring(11, 16) : "",
+      endTime: ed ? ed.substring(11, 16) : "",
+      allDay: ev.wholeDayFlag || false,
+      location: ev.location || "",
+      memo: ev.body || ev.description || "",
+      calendarName: (ev.calendar && ev.calendar.name) || "",
+      category: "meeting",
+      priority: "medium",
+      source: "dooray"
+    };
+  }
+
   try {
     if (action === "discover") {
       var r = await fetch(DOORAY_BASE + "/calendar/v1/calendars", { headers: hdrs });
@@ -55,32 +76,40 @@ module.exports = async function handler(req, res) {
     if (action === "list") {
       var from = req.query.from || new Date().toISOString().split("T")[0];
       var to = req.query.to || new Date(Date.now() + 90 * 86400000).toISOString().split("T")[0];
-      var url = DOORAY_BASE + "/calendar/v1/calendars/*/events?calendarIds=" + cid + "&fromDate=" + from + "T00:00:00%2B09:00&toDate=" + to + "T23:59:59%2B09:00";
-      var response = await fetch(url, { headers: hdrs });
-      var data = await response.json();
-      if (!response.ok) return res.status(200).json({ events: [], error: "API " + response.status });
-      var rawEvents = data.result || [];
-      var events = rawEvents.map(function(ev) {
-        var sd = ev.startedAt || "";
-        var ed = ev.endedAt || "";
-        return {
-          id: "dooray-" + ev.id,
-          doorayId: ev.id,
-          title: ev.subject || ev.summary || ev.title || "",
-          date: sd ? sd.substring(0, 10) : "",
-          endDate: ed ? ed.substring(0, 10) : "",
-          time: sd ? sd.substring(11, 16) : "",
-          endTime: ed ? ed.substring(11, 16) : "",
-          allDay: ev.wholeDayFlag || false,
-          location: ev.location || "",
-          memo: ev.body || ev.description || "",
-          calendarName: (ev.calendar && ev.calendar.name) || "",
-          category: "meeting",
-          priority: "medium",
-          source: "dooray"
-        };
-      });
-      return res.status(200).json({ events: events, total: events.length });
+      var size = parseInt(req.query.size) || 200;
+      
+      // Fetch with pagination to get ALL events in range
+      var allRawEvents = [];
+      var page = 0;
+      var hasMore = true;
+      
+      while (hasMore && page < 10) { // max 10 pages safety
+        var url = DOORAY_BASE + "/calendar/v1/calendars/*/events?calendarIds=" + cid 
+          + "&fromDate=" + from + "T00:00:00%2B09:00"
+          + "&toDate=" + to + "T23:59:59%2B09:00"
+          + "&size=" + size
+          + "&page=" + page;
+        
+        var response = await fetch(url, { headers: hdrs });
+        if (!response.ok) {
+          if (page === 0) return res.status(200).json({ events: [], error: "API " + response.status });
+          break;
+        }
+        
+        var data = await response.json();
+        var batch = data.result || [];
+        allRawEvents = allRawEvents.concat(batch);
+        
+        // If we got fewer than requested size, no more pages
+        if (batch.length < size) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+      }
+      
+      var events = allRawEvents.map(parseEvent);
+      return res.status(200).json({ events: events, total: events.length, pages: page + 1 });
     }
 
     if (action === "create" && req.method === "POST") {
