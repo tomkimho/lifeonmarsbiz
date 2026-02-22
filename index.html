@@ -1215,7 +1215,7 @@ function BizPlanner(){
       const now = new Date();
       const from = fmt(new Date(now.getFullYear(), now.getMonth()-1, 1));
       const to = fmt(new Date(now.getFullYear(), now.getMonth()+3, 0));
-      const data = await doorayFetch("list",{from,to});
+      const data = await doorayFetch("list",{from,to,size:200});
       if(!data || !data.events) { setSyncSt("error"); return currentLocalEvents; }
       
       // Also get status
@@ -1237,6 +1237,7 @@ function BizPlanner(){
       setEvents(merged);
       setSyncSt("synced");
       setLastSync(new Date());
+      console.log(`✅ Dooray sync: ${doorayEvs.length} events (pages:${data.pages||1})`);
       return merged;
     } catch(e) {
       console.error("Dooray sync error:",e);
