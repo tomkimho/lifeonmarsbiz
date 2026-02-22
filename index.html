@@ -93,15 +93,22 @@ const DRIVE_FOLDER='BizPlanner_Backups';
 const DRIVE_API='https://www.googleapis.com/drive/v3';
 const DRIVE_UPLOAD='https://www.googleapis.com/upload/drive/v3';
 
-async function driveGetToken(){
+async function driveGetToken(allowPopup=false){
   let token=sessionStorage.getItem('bp-gtoken');
-  if(!token&&fbAuth&&fbGoogle){
-    const result=await fbAuth.signInWithPopup(fbGoogle);
-    token=result.credential?.accessToken;
-    if(token)sessionStorage.setItem('bp-gtoken',token);
+  if(token)return token;
+  if(!allowPopup)throw new Error("토큰 없음 - 로그아웃 후 다시 로그인해주세요");
+  // Manual only: try to get token via popup
+  if(fbAuth&&fbGoogle){
+    try{
+      const result=await fbAuth.signInWithPopup(fbGoogle);
+      token=result.credential?.accessToken;
+      if(token){sessionStorage.setItem('bp-gtoken',token);return token;}
+    }catch(e){
+      console.warn("Drive token popup failed:",e);
+      throw new Error("로그인이 필요합니다");
+    }
   }
-  if(!token)throw new Error("로그인이 필요합니다");
-  return token;
+  throw new Error("로그인이 필요합니다");
 }
 
 async function driveFindOrCreateFolder(token){
@@ -422,7 +429,7 @@ function SettingsModal({onClose,events,todos,memos,contacts,routines,savedItems,
   const doBackup=async()=>{
     setDriveMode("backing");setDriveMsg("백업 중...");
     try{
-      const token=await driveGetToken();
+      const token=await driveGetToken(true);
       const result=await driveBackup(token,getAllData());
       setDriveMsg(`✅ 백업 완료: ${result.name}`);
       setDriveMode(null);
@@ -440,7 +447,7 @@ function SettingsModal({onClose,events,todos,memos,contacts,routines,savedItems,
   const loadBackups=async()=>{
     setDriveMode("list");setDriveMsg("목록 불러오는 중...");setDriveFiles([]);
     try{
-      const token=await driveGetToken();
+      const token=await driveGetToken(true);
       const files=await driveListBackups(token);
       setDriveFiles(files);
       setDriveMsg(files.length?`${files.length}개 백업 발견`:"백업 없음");
@@ -456,7 +463,7 @@ function SettingsModal({onClose,events,todos,memos,contacts,routines,savedItems,
     if(!confirm(`"${fileName}" 백업으로 복원하시겠습니까?\n현재 데이터가 덮어씌워집니다.`))return;
     setDriveMode("restoring");setDriveMsg("복원 중...");
     try{
-      const token=await driveGetToken();
+      const token=await driveGetToken(true);
       const data=await driveRestore(token,fileId);
       onRestore(data);
       setDriveMsg("✅ 복원 완료!");
