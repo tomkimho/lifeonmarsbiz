@@ -83,7 +83,7 @@ module.exports = async function handler(req, res) {
       var page = 0;
       var hasMore = true;
       
-      while (hasMore && page < 10) { // max 10 pages = 500 events safety
+      while (hasMore && page < 20) { // max 20 pages = 1000 events safety
         var url = DOORAY_BASE + "/calendar/v1/calendars/*/events?calendarIds=" + cid 
           + "&fromDate=" + from + "T00:00:00%2B09:00"
           + "&toDate=" + to + "T23:59:59%2B09:00"
