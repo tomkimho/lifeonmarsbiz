@@ -78,13 +78,26 @@ module.exports = async function handler(req, res) {
       var to = req.query.to || new Date(Date.now() + 90 * 86400000).toISOString().split("T")[0];
       var DOORAY_PAGE_SIZE = 50; // Dooray API hard limit
       
+      // Get ALL calendar IDs to query all calendars
+      var allCalIds = [cid];
+      try {
+        var calR = await fetch(DOORAY_BASE + "/calendar/v1/calendars", { headers: hdrs });
+        if (calR.ok) {
+          var calD = await calR.json();
+          var calsList = calD.result || [];
+          allCalIds = calsList.map(function(c) { return c.id; });
+        }
+      } catch(e) {}
+      
+      var calIdsParam = allCalIds.join(",");
+      
       // Fetch with pagination to get ALL events in range
       var allRawEvents = [];
       var page = 0;
       var hasMore = true;
       
       while (hasMore && page < 20) { // max 20 pages = 1000 events safety
-        var url = DOORAY_BASE + "/calendar/v1/calendars/*/events?calendarIds=" + cid 
+        var url = DOORAY_BASE + "/calendar/v1/calendars/*/events?calendarIds=" + calIdsParam 
           + "&fromDate=" + from + "T00:00:00%2B09:00"
           + "&toDate=" + to + "T23:59:59%2B09:00"
           + "&size=" + DOORAY_PAGE_SIZE
