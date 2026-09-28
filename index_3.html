@@ -1,0 +1,2018 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>김호 정신차려! - Smart Business Planner</title>
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#0F172A">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%233B82F6'/><text x='32' y='44' text-anchor='middle' font-size='30' font-weight='900' font-family='Arial Black' fill='white'>KH</text></svg>">
+</head>
+<body>
+  <div id="root"><div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;color:#64748B">로딩 중...</div></div>
+  <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore-compat.js"></script>
+  <script>if(typeof firebase!=='undefined')console.log('✅ Firebase SDK:',firebase.SDK_VERSION);else console.error('❌ Firebase SDK failed');</script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+  <script type="text/babel">
+    const { useState, useEffect, useCallback, useRef } = React;
+
+
+
+// ═══ Firebase Cloud Sync ═══
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyBq3KuweKLuND6qPrK-W2zG-ifMouZ4gSo",
+  authDomain: "bizplanner-2592b.firebaseapp.com",
+  projectId: "bizplanner-2592b",
+  storageBucket: "bizplanner-2592b.firebasestorage.app",
+  messagingSenderId: "677571477287",
+  appId: "1:677571477287:web:8fa58493c4ecc1d9d87302"
+};
+
+// Validate Firebase config properly
+function isFirebaseConfigValid(){
+  const c=FIREBASE_CONFIG;
+  if(!c.apiKey||!c.projectId||!c.appId) return false;
+  if(c.apiKey.includes("PASTE_YOUR")||c.apiKey.includes("본인")||c.apiKey.includes("...")) return false;
+  if(c.projectId.includes("PASTE_YOUR")||c.projectId.includes("xxxxx")) return false;
+  if(c.appId.includes("PASTE_YOUR")) return false;
+  if(c.apiKey.length<20) return false;
+  return true;
+}
+
+let fbReady = false;
+try {
+  if (typeof firebase !== 'undefined' && isFirebaseConfigValid()) {
+    if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+    fbReady = true;
+    console.log("✅ Firebase initialized");
+  } else {
+    console.log("Firebase not available - local mode");
+  }
+} catch(e) { console.warn("Firebase init error:", e); }
+
+const fbAuth = fbReady ? firebase.auth() : null;
+const fbDb = fbReady ? firebase.firestore() : null;
+const fbGoogle = fbReady ? new firebase.auth.GoogleAuthProvider() : null;
+if(fbGoogle) fbGoogle.addScope('https://www.googleapis.com/auth/contacts.readonly');
+if(fbGoogle) fbGoogle.addScope('https://www.googleapis.com/auth/drive.file');
+
+async function cloudLoad(uid) {
+  if (!fbDb) return null;
+  try { const doc = await fbDb.collection('users').doc(uid).get(); return doc.exists ? doc.data() : null; }
+  catch(e) { console.error("Cloud load:",e); return null; }
+}
+async function cloudSaveAll(uid, data) {
+  if (!fbDb) return;
+  try { await fbDb.collection('users').doc(uid).set({ ...data, lastUpdated: new Date().toISOString() }, { merge: true }); }
+  catch(e) { console.error("Cloud save:",e); }
+}
+
+// ─── Google Contacts API ───
+async function fetchGoogleContacts(token){
+  if(!token)throw new Error("No token");
+  const resp=await fetch('https://people.googleapis.com/v1/people/me/connections?personFields=names,emailAddresses,phoneNumbers,organizations&pageSize=500&sortOrder=FIRST_NAME_ASCENDING',{headers:{Authorization:`Bearer ${token}`}});
+  if(!resp.ok)throw new Error(`API ${resp.status}`);
+  const data=await resp.json();
+  return(data.connections||[]).map(p=>{
+    const name=p.names?.[0]?.displayName||"";
+    const email=p.emailAddresses?.[0]?.value||"";
+    const phone=p.phoneNumbers?.[0]?.value||"";
+    const company=p.organizations?.[0]?.name||"";
+    const position=p.organizations?.[0]?.title||"";
+    if(!name)return null;
+    return{id:"g_"+(name+email).replace(/[^a-zA-Z0-9]/g,"").slice(0,16)+Date.now()%1000,name,email,phone,company,position,notes:"",source:"google"};
+  }).filter(Boolean);
+}
+
+// ─── Google Drive Backup/Restore ───
+const DRIVE_FOLDER='BizPlanner_Backups';
+const DRIVE_API='https://www.googleapis.com/drive/v3';
+const DRIVE_UPLOAD='https://www.googleapis.com/upload/drive/v3';
+
+async function driveGetToken(allowPopup=false){
+  let token=sessionStorage.getItem('bp-gtoken');
+  if(token)return token;
+  if(!allowPopup)throw new Error("토큰 없음 - 로그아웃 후 다시 로그인해주세요");
+  // Manual only: try to get token via popup
+  if(fbAuth&&fbGoogle){
+    try{
+      const result=await fbAuth.signInWithPopup(fbGoogle);
+      token=result.credential?.accessToken;
+      if(token){sessionStorage.setItem('bp-gtoken',token);return token;}
+    }catch(e){
+      console.warn("Drive token popup failed:",e);
+      throw new Error("로그인이 필요합니다");
+    }
+  }
+  throw new Error("로그인이 필요합니다");
+}
+
+async function driveFindOrCreateFolder(token){
+  // Find existing folder
+  const q=encodeURIComponent(`name='${DRIVE_FOLDER}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  const resp=await fetch(`${DRIVE_API}/files?q=${q}&spaces=drive&fields=files(id,name)`,{headers:{Authorization:`Bearer ${token}`}});
+  if(!resp.ok)throw new Error(`Drive API ${resp.status}`);
+  const data=await resp.json();
+  if(data.files&&data.files.length>0)return data.files[0].id;
+  // Create folder
+  const cr=await fetch(`${DRIVE_API}/files`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({name:DRIVE_FOLDER,mimeType:'application/vnd.google-apps.folder'})});
+  if(!cr.ok)throw new Error(`Folder create failed ${cr.status}`);
+  const folder=await cr.json();
+  return folder.id;
+}
+
+async function driveBackup(token,backupData){
+  const folderId=await driveFindOrCreateFolder(token);
+  const now=new Date();
+  const fileName=`backup_${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}.json`;
+  const content=JSON.stringify({...backupData,_backupDate:now.toISOString(),_app:'김호 정신차려!'},null,2);
+  const metadata={name:fileName,parents:[folderId],mimeType:'application/json'};
+  const boundary='bizplanner_boundary';
+  const body=`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${content}\r\n--${boundary}--`;
+  const resp=await fetch(`${DRIVE_UPLOAD}/files?uploadType=multipart`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':`multipart/related; boundary=${boundary}`},body});
+  if(!resp.ok)throw new Error(`Upload failed ${resp.status}`);
+  const file=await resp.json();
+  return{id:file.id,name:fileName,date:now.toISOString()};
+}
+
+async function driveListBackups(token){
+  const folderId=await driveFindOrCreateFolder(token);
+  const q=encodeURIComponent(`'${folderId}' in parents and trashed=false and mimeType='application/json'`);
+  const resp=await fetch(`${DRIVE_API}/files?q=${q}&orderBy=createdTime desc&pageSize=20&fields=files(id,name,createdTime,size)`,{headers:{Authorization:`Bearer ${token}`}});
+  if(!resp.ok)throw new Error(`List failed ${resp.status}`);
+  const data=await resp.json();
+  return data.files||[];
+}
+
+async function driveRestore(token,fileId){
+  const resp=await fetch(`${DRIVE_API}/files/${fileId}?alt=media`,{headers:{Authorization:`Bearer ${token}`}});
+  if(!resp.ok)throw new Error(`Download failed ${resp.status}`);
+  return await resp.json();
+}
+
+// ─── Login Screen ───
+function LoginScreen({onLogin,onSkip}){
+  return(
+    <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#0F172A 0%,#1E3A5F 50%,#0F172A 100%)",display:"flex",justifyContent:"center",alignItems:"center",fontFamily:"'Noto Sans KR',sans-serif",padding:20}}>
+      <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+      <div style={{textAlign:"center",maxWidth:360,width:"100%"}}>
+        <div style={{width:80,height:80,borderRadius:20,background:"linear-gradient(135deg,#3B82F6,#8B5CF6)",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 20px",boxShadow:"0 8px 32px rgba(59,130,246,0.4)"}}><span style={{fontSize:36,fontWeight:900,color:"#fff",letterSpacing:"-2px",fontFamily:"Arial Black,sans-serif",textShadow:"0 2px 8px rgba(0,0,0,0.3)"}}>KH</span></div>
+        <h1 style={{color:"#fff",fontSize:28,fontWeight:800,marginBottom:4,letterSpacing:"-0.5px"}}>김호 정신차려!</h1>
+        <p style={{color:"#64748B",fontSize:12,marginBottom:40,letterSpacing:2}}>SMART BUSINESS PLANNER</p>
+        <button onClick={onLogin} style={{display:"flex",alignItems:"center",gap:12,margin:"0 auto",padding:"14px 32px",borderRadius:12,border:"none",background:"#fff",color:"#334155",fontSize:15,fontWeight:600,cursor:"pointer",boxShadow:"0 4px 24px rgba(0,0,0,0.3)",transition:"transform 0.15s",width:"100%",maxWidth:280,justifyContent:"center"}}
+          onMouseEnter={e=>e.currentTarget.style.transform="scale(1.02)"} onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}>
+          <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+          Google로 로그인
+        </button>
+        <p style={{color:"#475569",fontSize:11,marginTop:28,lineHeight:1.7}}>로그인하면 휴대폰과 PC에서<br/>같은 일정을 볼 수 있습니다</p>
+        {onSkip&&<button onClick={onSkip} style={{border:"none",background:"none",color:"#64748B",fontSize:12,cursor:"pointer",marginTop:16,padding:"8px 16px",textDecoration:"underline"}}>로그인 없이 사용 →</button>}
+      </div>
+    </div>
+  );
+}
+
+// ─── Constants ───
+const DAYS_KR = ["일","월","화","수","목","금","토"];
+const MONTHS_KR = ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"];
+const PRI = { high:{bg:"#FEE2E2",text:"#DC2626",dot:"#EF4444",label:"상"}, medium:{bg:"#FFF7ED",text:"#EA580C",dot:"#F97316",label:"중"}, low:{bg:"#EFF6FF",text:"#2563EB",dot:"#3B82F6",label:"하"} };
+const CAT = { meeting:{i:"🤝",l:"미팅"}, call:{i:"📞",l:"통화"}, task:{i:"📋",l:"업무"}, travel:{i:"✈️",l:"출장"}, personal:{i:"👤",l:"개인"}, deadline:{i:"⏰",l:"마감"} };
+const MEMO_T = {
+  free:{icon:"📝",label:"자유 메모",color:"#6366F1"}, schedule:{icon:"📅",label:"일정 메모",color:"#0EA5E9"},
+  meeting:{icon:"🤝",label:"회의록",color:"#10B981"}, idea:{icon:"💡",label:"아이디어",color:"#F59E0B"}, diary:{icon:"📔",label:"일기",color:"#EC4899"},
+};
+const ALARM_OPTS = [{v:0,l:"정시"},{v:5,l:"5분 전"},{v:10,l:"10분 전"},{v:15,l:"15분 전"},{v:30,l:"30분 전"},{v:60,l:"1시간 전"},{v:1440,l:"1일 전"}];
+const TODO_CATS = ["업무","개인","프로젝트","연구","기타"];
+// Weekly routines: days = weekday numbers (0=일 … 6=토), time = optional "HH:MM"
+const WEEKLY_ROUTINES = [
+  {id:"weekly_report",label:"장일태 이사장님 주간보고",icon:"📊",short:"주간보고",days:[1],time:"14:00"},
+  {id:"wonkwang_lecture",label:"원광대 강의 준비",icon:"🎓",short:"원광대",days:[3],time:"09:00"},
+];
+const DEFAULT_ROUTINES = [
+  {id:"exercise",label:"운동 30분 이상",icon:"💪",short:"운동"},
+  {id:"english1",label:"영어공부 1",icon:"📗",short:"영어1"},
+  {id:"english2",label:"영어공부 2",icon:"📘",short:"영어2"},
+  {id:"reading",label:"독서 30분",icon:"📚",short:"독서"},
+  {id:"writing",label:"글쓰기 1건",icon:"✍️",short:"글쓰기"},
+  {id:"networking",label:"네트워킹 메시지 3건+",icon:"💬",short:"네트워킹"},
+  ...WEEKLY_ROUTINES,
+];
+// Ensure weekly routines exist in a stored item list (one-time migration)
+const withWeekly = items => {
+  const ids=new Set((items||[]).map(r=>r.id));
+  const missing=WEEKLY_ROUTINES.filter(w=>!ids.has(w.id));
+  return missing.length?[...(items||[]),...missing]:items;
+};
+// Is routine r active on date string ds?
+const routineActive = (r,ds) => {
+  if(!r.days||r.days.length===0)return true;
+  return r.days.includes(pD(ds).getDay());
+};
+const NEWS_API = "https://lifeonmarsbiz.vercel.app/api/news";
+const PUBMED_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils";
+const DOORAY_API = "https://lifeonmarsbiz.vercel.app/api/dooray";
+const uid = () => Date.now().toString(36)+Math.random().toString(36).substr(2,9);
+const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const pD = s => { const[y,m,d]=s.split("-").map(Number); return new Date(y,m-1,d); };
+const dBtw = (a,b) => Math.floor((pD(b)-pD(a))/864e5);
+const TODAY = fmt(new Date());
+
+// ─── Storage ───
+function ld(k,fb){try{const r=localStorage.getItem(k);return r?JSON.parse(r):fb;}catch{return fb;}}
+function sv(k,d){try{localStorage.setItem(k,JSON.stringify(d));}catch(e){console.error(e);}}
+
+// ─── Dooray API helpers ───
+async function doorayFetch(action, params={}){
+  try {
+    const qs = new URLSearchParams({action,...params}).toString();
+    const r = await fetch(`${DOORAY_API}?${qs}`);
+    if(!r.ok) return null;
+    return await r.json();
+  } catch(e){ console.error("Dooray fetch error:",e); return null; }
+}
+async function doorayPost(action, body){
+  try {
+    const r = await fetch(`${DOORAY_API}?action=${action}`, {
+      method: action==="delete"?"DELETE":action==="update"?"PUT":"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(body)
+    });
+    return await r.json();
+  } catch(e){ console.error("Dooray post error:",e); return null; }
+}
+
+// ─── Notification Helper ───
+function requestNotifPermission(){try{if("Notification"in window&&Notification.permission==="default")Notification.requestPermission();}catch{}}
+function showNotif(title,body){try{if("Notification"in window&&Notification.permission==="granted")new Notification(title,{body,icon:"📅"});}catch{}}
+
+// ─── Confirm Dialog ───
+function ConfirmDialog({message,onConfirm,onCancel}){
+  return(
+    <div style={modalOverlay} onClick={onCancel}>
+      <div style={{background:"#fff",borderRadius:16,padding:20,width:"100%",maxWidth:340,boxShadow:"0 20px 60px rgba(0,0,0,0.25)"}} onClick={e=>e.stopPropagation()}>
+        <div style={{fontSize:15,fontWeight:600,color:"#1E293B",marginBottom:6,lineHeight:1.5}}>⚠️ 확인</div>
+        <div style={{fontSize:14,color:"#64748B",marginBottom:20,lineHeight:1.6,wordBreak:"keep-all"}}>{message}</div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+          <button onClick={onCancel} style={{...btnS,background:"#F1F5F9",color:"#64748B"}}>취소</button>
+          <button onClick={onConfirm} style={{...btnS,background:"#DC2626",color:"#fff"}}>삭제</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Contact Picker ───
+function ContactPicker({contacts,value,onChange,onAddNew}){
+  const[open,setOpen]=useState(false);const[q,setQ]=useState("");const ref=useRef(null);
+  useEffect(()=>{const h=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false);};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);},[]);
+  const fl=contacts.filter(c=>c.name.toLowerCase().includes(q.toLowerCase())||c.company?.toLowerCase().includes(q.toLowerCase()));
+  return(
+    <div ref={ref} style={{position:"relative"}}>
+      <input value={value} onChange={e=>onChange(e.target.value)} onFocus={()=>setOpen(true)} placeholder="👥 참석자" style={inpS}/>
+      {open&&<div style={{position:"absolute",top:"100%",left:0,right:0,background:"#fff",borderRadius:12,boxShadow:"0 8px 32px rgba(0,0,0,0.15)",zIndex:50,maxHeight:200,overflow:"auto",marginTop:4,border:"1px solid #E2E8F0"}}>
+        <div style={{padding:"6px 8px",borderBottom:"1px solid #F1F5F9"}}><input value={q} onChange={e=>setQ(e.target.value)} placeholder="검색..." style={{...inpS,padding:"6px 10px",fontSize:13}}/></div>
+        {fl.map(c=><div key={c.id} onClick={()=>{onChange(value?value+", "+c.name:c.name);setOpen(false);setQ("");}}
+          style={{padding:"8px 12px",cursor:"pointer",borderBottom:"1px solid #F8FAFC",fontSize:13}}
+          onMouseEnter={e=>e.currentTarget.style.background="#F1F5F9"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+          <div style={{fontWeight:600,color:"#1E293B"}}>{c.name}</div>
+          <div style={{fontSize:11,color:"#94A3B8"}}>{c.company}{c.phone?` · ${c.phone}`:""}</div>
+        </div>)}
+        <div onClick={()=>{onAddNew();setOpen(false);}} style={{padding:"8px 12px",cursor:"pointer",color:"#3B82F6",fontWeight:600,fontSize:13,borderTop:"1px solid #E2E8F0"}}>+ 새 연락처 추가</div>
+      </div>}
+    </div>
+  );
+}
+
+// ─── Company Autocomplete ───
+function CompanyAC({contacts,value,onChange}){
+  const[open,setOpen]=useState(false);
+  const cos=[...new Set(contacts.map(c=>c.company).filter(Boolean))];
+  const fl=cos.filter(c=>c.toLowerCase().includes(value.toLowerCase()));
+  return(
+    <div style={{position:"relative"}}>
+      <input value={value} onChange={e=>{onChange(e.target.value);setOpen(true);}} onFocus={()=>setOpen(true)} onBlur={()=>setTimeout(()=>setOpen(false),200)} placeholder="🏢 회사명" style={inpS}/>
+      {open&&fl.length>0&&value&&<div style={{position:"absolute",top:"100%",left:0,right:0,background:"#fff",borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.12)",zIndex:40,maxHeight:140,overflow:"auto",marginTop:2}}>
+        {fl.map(c=><div key={c} onClick={()=>{onChange(c);setOpen(false);}} style={{padding:"8px 14px",cursor:"pointer",fontSize:13,color:"#334155"}}
+          onMouseEnter={e=>e.currentTarget.style.background="#F1F5F9"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>🏢 {c}</div>)}
+      </div>}
+    </div>
+  );
+}
+
+// ─── Countdown Alarm ───
+function CountdownAlarm({events}){
+  const[now,setNow]=useState(new Date());
+  useEffect(()=>{const t=setInterval(()=>setNow(new Date()),1000);return()=>clearInterval(t);},[]);
+  const up=events.filter(e=>e.alarm!=null&&e.alarm>=0&&e.date&&e.time).map(e=>{
+    const[h,m]=e.time.split(":").map(Number);const et=new Date(pD(e.date));et.setHours(h,m,0,0);
+    const at=new Date(et.getTime()-(e.alarm||0)*60000);const diff=at-now;return{...e,diff,et,at};
+  }).filter(e=>e.diff>-300000&&e.diff<864e5*2).sort((a,b)=>a.diff-b.diff).slice(0,3);
+  useEffect(()=>{up.forEach(e=>{if(e.diff<=0&&e.diff>-2000)showNotif(`⏰ ${e.title}`,`${e.date} ${e.time}`);});},[now]);
+  if(!up.length)return null;
+  const fmtCD=ms=>{if(ms<=0)return"지금!";const h=Math.floor(ms/36e5),m=Math.floor(ms%36e5/6e4),s=Math.floor(ms%6e4/1e3);return h>0?`${h}시간 ${m}분`:m>0?`${m}분 ${s}초`:`${s}초`;};
+  return(
+    <div style={{background:"linear-gradient(135deg,#0F172A,#1E3A5F)",borderRadius:14,padding:"12px 14px",marginBottom:14}}>
+      <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",marginBottom:8,letterSpacing:1.5}}>⏰ COUNTDOWN</div>
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+        {up.map(e=><div key={e.id} style={{display:"flex",alignItems:"center",gap:8,background:"rgba(255,255,255,0.06)",borderRadius:10,padding:"8px 10px"}}>
+          <span style={{fontSize:16}}>{CAT[e.category]?.i||"📅"}</span>
+          <div style={{flex:1,minWidth:0}}><div style={{fontSize:12,fontWeight:600,color:"#F1F5F9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.title}</div><div style={{fontSize:10,color:"#94A3B8"}}>{e.date} {e.time}</div></div>
+          <div style={{background:e.diff<=0?"#EF4444":e.diff<6e5?"#F97316":"#3B82F6",color:"#fff",padding:"3px 8px",borderRadius:20,fontSize:11,fontWeight:700,minWidth:50,textAlign:"center",flexShrink:0}}>{fmtCD(e.diff)}</div>
+        </div>)}
+      </div>
+    </div>
+  );
+}
+
+// ─── Dashboard Summary ───
+function Dashboard({events,todos}){
+  const todayEvs=events.filter(e=>e.date===TODAY||(e.endDate&&e.date<=TODAY&&e.endDate>=TODAY)).length;
+  const urgentTodos=todos.filter(t=>!t.completed&&t.priority==="high").length;
+  const overdueTodos=todos.filter(t=>!t.completed&&t.dueDate&&t.dueDate<TODAY).length;
+  const weekEvents=events.filter(e=>{const d=dBtw(TODAY,e.date);return d>=0&&d<=7;}).length;
+  const items=[
+    {icon:"📅",label:"오늘",value:todayEvs,color:"#3B82F6",bg:"#EFF6FF"},
+    {icon:"📆",label:"이번 주",value:weekEvents,color:"#8B5CF6",bg:"#F5F3FF"},
+    {icon:"🔥",label:"긴급",value:urgentTodos,color:"#EF4444",bg:"#FEF2F2"},
+    {icon:"⚠️",label:"초과",value:overdueTodos,color:"#F97316",bg:"#FFF7ED"},
+  ];
+  return(
+    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:14}}>
+      {items.map(it=><div key={it.label} style={{background:it.bg,borderRadius:10,padding:"10px 4px",textAlign:"center"}}>
+        <div style={{fontSize:14}}>{it.icon}</div>
+        <div style={{fontSize:18,fontWeight:800,color:it.color,margin:"1px 0"}}>{it.value}</div>
+        <div style={{fontSize:9,color:"#64748B",fontWeight:600}}>{it.label}</div>
+      </div>)}
+    </div>
+  );
+}
+
+// ─── Share Modal ───
+function ShareModal({item,onClose,contacts}){
+  const[copied,setCopied]=useState(false);const[copiedContent,setCopiedContent]=useState(false);
+  const[mode,setMode]=useState(null); // null, "email", "sms"
+  const[cSearch,setCSearch]=useState("");
+  const txt=`[김호 정신차려!] ${item.title||"공유"}\n${item.date?`📅 ${item.date}`:""}${item.time?` ⏰ ${item.time}`:""}\n${item.location?`📍 ${item.location}\n`:""}${item.attendees?`👥 ${item.attendees}\n`:""}${item.memo||item.content||item.decisions||""}`.trim();
+  const copy=async(t,setter)=>{try{await navigator.clipboard.writeText(t);setter(true);setTimeout(()=>setter(false),2000);}catch{}};
+  const filteredC=(contacts||[]).filter(c=>{if(!cSearch)return true;const s=cSearch.toLowerCase();return c.name.toLowerCase().includes(s)||c.company?.toLowerCase().includes(s)||c.email?.toLowerCase().includes(s);});
+  const sendEmail=(email)=>{window.open(`mailto:${email}?subject=${encodeURIComponent(item.title||"공유")}&body=${encodeURIComponent(txt)}`);};
+  const sendSms=(phone)=>{window.open(`sms:${phone}?body=${encodeURIComponent(txt)}`);};
+
+  if(mode){
+    return(
+      <div style={modalOverlay} onClick={onClose}><div style={{...modalCont,maxWidth:380}} onClick={e=>e.stopPropagation()}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <h3 style={{margin:0,fontSize:16,fontWeight:700,color:"#1E293B"}}>{mode==="email"?"📧 이메일로 보내기":"📱 문자로 보내기"}</h3>
+          <button onClick={()=>setMode(null)} style={closeS}>←</button>
+        </div>
+        <input value={cSearch} onChange={e=>setCSearch(e.target.value)} placeholder="🔍 이름, 회사, 이메일 검색..." style={{...inpS,marginBottom:8}} autoFocus/>
+        {/* Direct send without contact */}
+        <button onClick={()=>{mode==="email"?sendEmail(""):sendSms("");}} style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"2px dashed #E2E8F0",background:"#F8FAFC",color:"#64748B",fontSize:12,fontWeight:600,cursor:"pointer",marginBottom:8,textAlign:"left"}}>
+          {mode==="email"?"✉️ 받는 사람 직접 입력 (메일 앱에서)":"💬 번호 직접 입력 (문자 앱에서)"}
+        </button>
+        <div style={{maxHeight:250,overflow:"auto",display:"flex",flexDirection:"column",gap:4}}>
+          {filteredC.length===0&&<div style={{textAlign:"center",padding:16,color:"#94A3B8",fontSize:12}}>연락처가 없습니다</div>}
+          {filteredC.map(c=>{
+            const hasTarget=mode==="email"?c.email:c.phone;
+            if(!hasTarget)return null;
+            return(
+              <div key={c.id} onClick={()=>{mode==="email"?sendEmail(c.email):sendSms(c.phone);}} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:"#fff",borderRadius:10,cursor:"pointer",boxShadow:"0 1px 3px rgba(0,0,0,0.04)",border:"1px solid #F1F5F9"}}>
+                <div style={{width:32,height:32,borderRadius:8,background:c.source==="google"?"linear-gradient(135deg,#EA4335,#FBBC04)":"linear-gradient(135deg,#6366F1,#8B5CF6)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:13,flexShrink:0}}>{c.name.charAt(0)}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:600,color:"#1E293B"}}>{c.name}{c.source==="google"&&<span style={{fontSize:8,color:"#EA4335",marginLeft:4}}>G</span>}</div>
+                  <div style={{fontSize:11,color:"#64748B",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{mode==="email"?c.email:c.phone}{c.company&&` · ${c.company}`}</div>
+                </div>
+                <span style={{fontSize:16}}>{mode==="email"?"📧":"📱"}</span>
+              </div>);
+          })}
+        </div>
+      </div></div>
+    );
+  }
+
+  const opts=[
+    {icon:"📧",label:"이메일",color:"#EA4335",tc:"#fff",action:()=>setMode("email")},
+    {icon:"📱",label:"문자",color:"#4CAF50",tc:"#fff",action:()=>setMode("sms")},
+    {icon:"💬",label:"카카오톡",color:"#FEE500",tc:"#3C1E1E",action:()=>{if(navigator.share)navigator.share({title:item.title||"공유",text:txt}).catch(()=>{});else copy(txt,setCopiedContent);}},
+    {icon:"📨",label:"두레이",color:"#3E6FE0",tc:"#fff",action:()=>{copy(txt,setCopiedContent);}},
+  ];
+  return(
+    <div style={modalOverlay} onClick={onClose}><div style={{...modalCont,maxWidth:380}} onClick={e=>e.stopPropagation()}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <h3 style={{margin:0,fontSize:17,fontWeight:700,color:"#1E293B"}}>공유하기</h3><button onClick={onClose} style={closeS}>✕</button></div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
+        {opts.map(o=><button key={o.label} onClick={o.action} style={{padding:"12px 8px",borderRadius:10,border:"none",background:o.color,color:o.tc,fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+          <span style={{fontSize:20}}>{o.icon}</span>{o.label}</button>)}
+      </div>
+      <div style={{background:"#F8FAFC",borderRadius:10,padding:10}}>
+        <pre style={{fontSize:11,color:"#475569",whiteSpace:"pre-wrap",margin:"0 0 6px",lineHeight:1.5,maxHeight:80,overflow:"auto"}}>{txt}</pre>
+        <button onClick={()=>copy(txt,setCopiedContent)} style={{...btnS,padding:"6px 12px",background:copiedContent?"#10B981":"#E2E8F0",color:copiedContent?"#fff":"#475569",fontSize:11,width:"100%"}}>{copiedContent?"✓ 복사됨":"📋 내용 복사"}</button>
+      </div>
+    </div></div>
+  );
+}
+
+// ─── Settings Modal ───
+function SettingsModal({onClose,events,todos,memos,contacts,routines,savedItems,routineItems,memoArchive,onRestore,doorayStatus,onDooraySync,user,cloudSt,onLogin,onLogout,fbReady}){
+  const fileRef=useRef(null);
+  const[driveMode,setDriveMode]=useState(null); // null, "list", "backing", "restoring"
+  const[driveMsg,setDriveMsg]=useState("");
+  const[driveFiles,setDriveFiles]=useState([]);
+  const[autoBackup,setAutoBackup]=useState(()=>{try{return localStorage.getItem('bp-auto-backup')==='true';}catch{return false;}});
+
+  const getAllData=()=>({
+    'bp-events':events.filter(e=>e.source!=="dooray"),
+    'bp-todos':todos,'bp-memos':memos,'bp-contacts':contacts,
+    'bp-routines':routines,'bp-saved':savedItems,'bp-routine-items':routineItems,'bp-memo-archive':memoArchive,
+  });
+
+  const exportData=()=>{
+    const d=JSON.stringify({...getAllData(),exportDate:new Date().toISOString()},null,2);
+    const blob=new Blob([d],{type:"application/json"});const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");a.href=url;a.download=`BizPlanner_${fmt(new Date())}.json`;a.click();URL.revokeObjectURL(url);
+  };
+  const importData=async(e)=>{
+    const file=e.target.files[0];if(!file)return;
+    try{const text=await file.text();const d=JSON.parse(text);
+      if(d['bp-todos']||d.todos){onRestore(d);alert("복원 완료!");}
+      else alert("올바른 백업 파일이 아닙니다.");
+    }catch{alert("파일 오류");}
+  };
+
+  // Google Drive Backup
+  const doBackup=async()=>{
+    setDriveMode("backing");setDriveMsg("백업 중...");
+    try{
+      const token=await driveGetToken(true);
+      const result=await driveBackup(token,getAllData());
+      setDriveMsg(`✅ 백업 완료: ${result.name}`);
+      setDriveMode(null);
+      // Save last backup time
+      localStorage.setItem('bp-last-backup',new Date().toISOString());
+    }catch(e){
+      console.error("Drive backup:",e);
+      if(e.message?.includes("401")||e.message?.includes("403")){sessionStorage.removeItem('bp-gtoken');setDriveMsg("❌ 권한 만료 - 로그아웃 후 다시 로그인해주세요");}
+      else setDriveMsg("❌ 백업 실패: "+e.message);
+      setDriveMode(null);
+    }
+  };
+
+  // List backups
+  const loadBackups=async()=>{
+    setDriveMode("list");setDriveMsg("목록 불러오는 중...");setDriveFiles([]);
+    try{
+      const token=await driveGetToken(true);
+      const files=await driveListBackups(token);
+      setDriveFiles(files);
+      setDriveMsg(files.length?`${files.length}개 백업 발견`:"백업 없음");
+    }catch(e){
+      console.error("Drive list:",e);
+      if(e.message?.includes("401")||e.message?.includes("403")){sessionStorage.removeItem('bp-gtoken');setDriveMsg("❌ 권한 만료 - 로그아웃 후 다시 로그인해주세요");}
+      else setDriveMsg("❌ 목록 로드 실패: "+e.message);
+    }
+  };
+
+  // Restore from Drive
+  const doRestore=async(fileId,fileName)=>{
+    if(!confirm(`"${fileName}" 백업으로 복원하시겠습니까?\n현재 데이터가 덮어씌워집니다.`))return;
+    setDriveMode("restoring");setDriveMsg("복원 중...");
+    try{
+      const token=await driveGetToken(true);
+      const data=await driveRestore(token,fileId);
+      onRestore(data);
+      setDriveMsg("✅ 복원 완료!");
+      setDriveMode(null);
+    }catch(e){
+      console.error("Drive restore:",e);
+      setDriveMsg("❌ 복원 실패: "+e.message);
+      setDriveMode(null);
+    }
+  };
+
+  const toggleAutoBackup=(v)=>{
+    setAutoBackup(v);
+    localStorage.setItem('bp-auto-backup',v?'true':'false');
+  };
+
+  const lastBackup=localStorage.getItem('bp-last-backup');
+
+  return(
+    <div style={modalOverlay} onClick={onClose}><div style={{...modalCont,maxWidth:380,maxHeight:"90vh",overflow:"auto"}} onClick={e=>e.stopPropagation()}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <h3 style={{margin:0,fontSize:17,fontWeight:700,color:"#1E293B"}}>⚙️ 설정</h3><button onClick={onClose} style={closeS}>✕</button></div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {/* Cloud Account */}
+        <div style={{background:user?"#EFF6FF":"#F8FAFC",borderRadius:10,padding:12}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#1E293B",marginBottom:6}}>☁️ 클라우드 동기화</div>
+          {user?<>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+              <img src={user.photoURL||""} style={{width:32,height:32,borderRadius:"50%"}} alt="" onError={e=>{e.target.style.display="none";}}/>
+              <div><div style={{fontSize:12,fontWeight:600,color:"#1E293B"}}>{user.displayName||"사용자"}</div>
+                <div style={{fontSize:10,color:"#64748B"}}>{user.email}</div></div>
+            </div>
+            <div style={{fontSize:11,color:cloudSt==="synced"?"#059669":cloudSt==="syncing"?"#D97706":"#94A3B8",marginBottom:6}}>
+              {cloudSt==="synced"?"✅ 클라우드 동기화됨":cloudSt==="syncing"?"⏳ 동기화 중...":cloudSt==="error"?"❌ 연결 오류":"대기 중"}</div>
+            <button onClick={onLogout} style={{...btnS,background:"#FEE2E2",color:"#DC2626",width:"100%",padding:"8px 0",fontSize:12}}>로그아웃</button>
+          </>:fbReady?<>
+            <div style={{fontSize:12,color:"#64748B",marginBottom:8}}>로그인하면 휴대폰과 PC에서 같은 데이터를 볼 수 있습니다</div>
+            <button onClick={onLogin} style={{...btnS,background:"#1E293B",color:"#fff",width:"100%",padding:"10px 0",fontSize:13}}>Google로 로그인</button>
+          </>:<div style={{fontSize:12,color:"#94A3B8"}}>Firebase 미설정 (로컬 전용 모드)</div>}
+        </div>
+
+        {/* Google Drive Backup */}
+        {user&&<div style={{background:"#FFFBEB",borderRadius:10,padding:12}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#1E293B",marginBottom:4}}>💾 Google Drive 백업</div>
+          <div style={{fontSize:10,color:"#92400E",marginBottom:8}}>데이터를 Google Drive에 안전하게 백업합니다</div>
+          {lastBackup&&<div style={{fontSize:10,color:"#64748B",marginBottom:6}}>마지막 백업: {new Date(lastBackup).toLocaleString("ko-KR")}</div>}
+          <div style={{display:"flex",gap:6,marginBottom:8}}>
+            <button onClick={doBackup} disabled={driveMode==="backing"} style={{...btnS,background:"#F59E0B",color:"#fff",flex:1,padding:"9px 0",fontSize:12,opacity:driveMode==="backing"?0.6:1}}>
+              {driveMode==="backing"?"⏳ 백업 중...":"☁️ 지금 백업"}
+            </button>
+            <button onClick={loadBackups} disabled={driveMode==="list"} style={{...btnS,background:"#92400E",color:"#fff",flex:1,padding:"9px 0",fontSize:12}}>
+              📂 복원 목록
+            </button>
+          </div>
+          {/* Auto backup toggle */}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 0"}}>
+            <span style={{fontSize:11,fontWeight:600,color:"#1E293B"}}>🔄 자동 백업 (매일)</span>
+            <button onClick={()=>toggleAutoBackup(!autoBackup)} style={{width:40,height:22,borderRadius:11,border:"none",background:autoBackup?"#F59E0B":"#CBD5E1",cursor:"pointer",position:"relative",transition:"background 0.2s"}}>
+              <div style={{width:18,height:18,borderRadius:9,background:"#fff",position:"absolute",top:2,left:autoBackup?20:2,transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
+            </button>
+          </div>
+          {driveMsg&&<div style={{fontSize:11,color:driveMsg.startsWith("✅")?"#059669":driveMsg.startsWith("❌")?"#DC2626":"#64748B",marginTop:4,fontWeight:600}}>{driveMsg}</div>}
+          {/* Backup file list */}
+          {driveMode==="list"&&driveFiles.length>0&&<div style={{marginTop:8,maxHeight:180,overflow:"auto",display:"flex",flexDirection:"column",gap:4}}>
+            {driveFiles.map(f=>{
+              const dt=new Date(f.createdTime);
+              return(<div key={f.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 10px",background:"#fff",borderRadius:8,border:"1px solid #FDE68A"}}>
+                <div>
+                  <div style={{fontSize:11,fontWeight:600,color:"#1E293B"}}>{dt.toLocaleDateString("ko-KR")} {dt.toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit"})}</div>
+                  <div style={{fontSize:9,color:"#94A3B8"}}>{f.name}{f.size&&` · ${(f.size/1024).toFixed(1)}KB`}</div>
+                </div>
+                <button onClick={()=>doRestore(f.id,f.name)} style={{...btnS,background:"#3B82F6",color:"#fff",fontSize:10,padding:"5px 10px"}}>복원</button>
+              </div>);
+            })}
+          </div>}
+        </div>}
+
+        {/* Dooray Status */}
+        <div style={{background:doorayStatus?.connected?"#F0FDF4":"#FEF2F2",borderRadius:10,padding:12}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#1E293B",marginBottom:6}}>🔗 두레이 캘린더</div>
+          {doorayStatus?.connected?
+            <div style={{fontSize:12,color:"#059669"}}>✅ 연결됨 · {doorayStatus.calendarName||"캘린더"} · {doorayStatus.totalCalendars||1}개</div>
+            :<div style={{fontSize:12,color:"#DC2626"}}>❌ 연결 안됨</div>}
+          <button onClick={onDooraySync} style={{...btnS,background:"#3E6FE0",color:"#fff",width:"100%",padding:"8px 0",marginTop:8,fontSize:12}}>🔄 지금 동기화</button>
+        </div>
+        {/* Data Stats */}
+        <div style={{background:"#F8FAFC",borderRadius:10,padding:12}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#1E293B",marginBottom:6}}>📊 데이터</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:6}}>
+            {[{l:"일정",v:events.length,c:"#3B82F6"},{l:"할일",v:todos.length,c:"#10B981"},{l:"메모",v:memos.length,c:"#F59E0B"},{l:"보관",v:(memoArchive||[]).length,c:"#15803D"},{l:"연락처",v:contacts.length,c:"#8B5CF6"}].map(s=>
+              <div key={s.l} style={{textAlign:"center"}}><div style={{fontSize:16,fontWeight:800,color:s.c}}>{s.v}</div><div style={{fontSize:9,color:"#94A3B8"}}>{s.l}</div></div>)}
+          </div>
+        </div>
+        {/* Local Backup */}
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={exportData} style={{...btnS,background:"#1E293B",color:"#fff",flex:1,padding:"10px 0",fontSize:12}}>📥 파일 백업</button>
+          <button onClick={()=>fileRef.current?.click()} style={{...btnS,background:"#3B82F6",color:"#fff",flex:1,padding:"10px 0",fontSize:12}}>📂 파일 복원</button>
+          <input ref={fileRef} type="file" accept=".json" onChange={importData} style={{display:"none"}}/>
+        </div>
+      </div>
+    </div></div>
+  );
+}
+
+// ─── Calendar ───
+function Calendar({currentDate,selectedDate,onSelectDate,events,onMonthChange,onToday}){
+  const yr=currentDate.getFullYear(),mo=currentDate.getMonth();
+  const fd=new Date(yr,mo,1).getDay(),dim=new Date(yr,mo+1,0).getDate();
+  const evDates={};
+  events.forEach(e=>{
+    if(!e.date) return;
+    // Multi-day: mark all days in range
+    if(e.endDate && e.endDate > e.date){
+      let cur = pD(e.date);
+      const end = pD(e.endDate);
+      while(cur <= end){
+        const ds = fmt(cur);
+        if(!evDates[ds]) evDates[ds]=[];
+        evDates[ds].push(e);
+        cur = new Date(cur.getTime()+864e5);
+      }
+    } else {
+      if(!evDates[e.date]) evDates[e.date]=[];
+      evDates[e.date].push(e);
+    }
+  });
+  const cells=[];for(let i=0;i<fd;i++)cells.push(null);for(let d=1;d<=dim;d++)cells.push(d);
+  return(
+    <div style={{background:"#fff",borderRadius:14,padding:"14px 10px",boxShadow:"0 1px 4px rgba(0,0,0,0.05)"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <button onClick={()=>onMonthChange(-1)} style={navS}>◂</button>
+        <div style={{display:"flex",alignItems:"center",gap:6}}>
+          <span style={{fontWeight:800,fontSize:16,color:"#1E293B"}}>{yr}년 {MONTHS_KR[mo]}</span>
+          <button onClick={onToday} style={{fontSize:9,padding:"2px 7px",borderRadius:6,border:"1px solid #E2E8F0",background:"#F8FAFC",color:"#3B82F6",fontWeight:700,cursor:"pointer"}}>오늘</button>
+        </div>
+        <button onClick={()=>onMonthChange(1)} style={navS}>▸</button>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:1,textAlign:"center"}}>
+        {DAYS_KR.map((d,i)=><div key={d} style={{fontSize:10,fontWeight:700,color:i===0?"#EF4444":i===6?"#3B82F6":"#94A3B8",padding:"2px 0"}}>{d}</div>)}
+        {cells.map((day,i)=>{
+          if(!day)return<div key={`e-${i}`}/>;
+          const ds=fmt(new Date(yr,mo,day)),isT=ds===TODAY,isS=ds===selectedDate,de=evDates[ds]||[],ci=i%7;
+          const hasDooray=de.some(e=>e.source==="dooray");
+          return(<button key={i} onClick={()=>onSelectDate(ds)}
+            style={{position:"relative",border:"none",borderRadius:8,padding:"4px 2px 8px",cursor:"pointer",background:isS?"#1E293B":isT?"#EFF6FF":"transparent",
+              color:isS?"#fff":ci===0?"#EF4444":ci===6?"#3B82F6":"#334155",fontWeight:isT||isS?700:400,fontSize:13,transition:"all 0.12s"}}>
+            {day}
+            {de.length>0&&<div style={{display:"flex",justifyContent:"center",gap:2,position:"absolute",bottom:1,left:0,right:0}}>
+              {de.slice(0,3).map((ev,j)=><div key={j} style={{width:4,height:4,borderRadius:"50%",background:isS?"#fff":ev.source==="dooray"?"#3E6FE0":PRI[ev.priority]?.dot||"#94A3B8"}}/>)}</div>}
+          </button>);
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Event Card (mobile optimized) ───
+function EventCard({ev,onEdit,onShare,isPast,isChecked,onToggleCheck}){
+  const p=PRI[ev.priority]||PRI.medium;
+  const isDooray=ev.source==="dooray";
+  const isMultiDay=ev.endDate&&ev.endDate!==ev.date;
+  const isOngoing=ev.date<=TODAY&&(ev.endDate||ev.date)>=TODAY&&!isPast;
+  const grayOut=isPast&&!isChecked;
+  return(
+    <div style={{background:isChecked?"#F1F5F9":grayOut?"#F8FAFC":"#fff",borderRadius:12,padding:"10px 12px",borderLeft:`4px solid ${isChecked?"#CBD5E1":grayOut?"#CBD5E1":isDooray?"#3E6FE0":p.dot}`,boxShadow:"0 1px 3px rgba(0,0,0,0.04)",cursor:"pointer",opacity:isChecked?0.5:grayOut?0.65:1,transition:"all 0.2s"}}>
+      <div style={{display:"flex",alignItems:"flex-start",gap:6}}>
+        {/* Checkbox */}
+        <button onClick={e=>{e.stopPropagation();onToggleCheck&&onToggleCheck(ev.id);}} style={{width:20,height:20,borderRadius:5,border:`2px solid ${isChecked?"#10B981":"#CBD5E1"}`,background:isChecked?"#10B981":"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:11,flexShrink:0,marginTop:2}}>
+          {isChecked&&"✓"}
+        </button>
+        <span style={{fontSize:14,flexShrink:0,marginTop:1}}>{CAT[ev.category]?.i||"📅"}</span>
+        <div style={{flex:1,minWidth:0}} onClick={()=>onEdit(ev)}>
+          <div style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap"}}>
+            <span style={{fontWeight:600,fontSize:13,color:grayOut||isChecked?"#94A3B8":"#1E293B",wordBreak:"keep-all",lineHeight:1.4,textDecoration:isChecked?"line-through":"none"}}>{ev.title}</span>
+            {isPast&&!isChecked&&<span style={{fontSize:9,background:"#F1F5F9",color:"#94A3B8",borderRadius:4,padding:"1px 4px",fontWeight:700,flexShrink:0}}>완료</span>}
+            {isOngoing&&<span style={{fontSize:9,background:"#DCFCE7",color:"#16A34A",borderRadius:4,padding:"1px 4px",fontWeight:700,flexShrink:0}}>진행중</span>}
+            {isDooray&&<span style={{fontSize:9,background:"#DBEAFE",color:"#3E6FE0",borderRadius:4,padding:"1px 4px",fontWeight:700,flexShrink:0}}>두레이</span>}
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:4,marginTop:3,flexWrap:"wrap"}}>
+            {ev.time&&<span style={{fontSize:11,color:"#94A3B8",fontWeight:500}}>{ev.time}{ev.endTime?`-${ev.endTime}`:""}</span>}
+            {isMultiDay&&<span style={{fontSize:10,color:grayOut?"#94A3B8":"#3B82F6",fontWeight:500}}>📅 {ev.date} ~ {ev.endDate}</span>}
+            {ev.calendarName&&<span style={{fontSize:9,color:"#94A3B8"}}>· {ev.calendarName}</span>}
+          </div>
+          {ev.attendees&&<div style={{fontSize:11,color:grayOut?"#B0B8C4":"#2563EB",marginTop:2,fontWeight:500}}>👥 {ev.attendees}</div>}
+          {ev.company&&<div style={{fontSize:11,color:grayOut?"#B0B8C4":"#64748B",marginTop:1}}>🏢 {ev.company}</div>}
+          {ev.location&&<div style={{fontSize:11,color:grayOut?"#B0B8C4":"#64748B",marginTop:1}}>📍 {ev.location}</div>}
+        </div>
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2,flexShrink:0}}>
+          {ev.alarm>=0&&<span style={{fontSize:8,background:"#DBEAFE",color:"#2563EB",borderRadius:3,padding:"0px 3px",fontWeight:600}}>⏰</span>}
+          {isDooray&&<button onClick={e=>{e.stopPropagation();if(ev.doorayId)window.open(`https://basgenbio.dooray.com/calendar/schedules/${ev.doorayId}`,"_blank");}} style={{border:"none",background:"none",cursor:"pointer",fontSize:11,padding:0,color:"#94A3B8"}}>↗</button>}
+          <button onClick={e=>{e.stopPropagation();onShare(ev);}} style={{border:"none",background:"none",cursor:"pointer",fontSize:11,padding:0,color:"#94A3B8"}}>📤</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Event Form ───
+function EventForm({event,onSave,onClose,onDelete,contacts,onAddContact,selectedDate}){
+  const[f,setF]=useState(event||{id:uid(),title:"",date:selectedDate||TODAY,endDate:"",time:"09:00",endTime:"10:00",category:"meeting",priority:"medium",location:"",attendees:"",memo:"",alarm:15,company:"",source:"local"});
+  const[confirmDel,setConfirmDel]=useState(false);
+  const u=(k,v)=>setF(p=>({...p,[k]:v}));
+  const isDooray=f.source==="dooray";
+  return(
+    <div style={modalOverlay} onClick={onClose}><div style={{...modalCont,maxHeight:"90vh",overflow:"auto"}} onClick={e=>e.stopPropagation()}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <h3 style={{margin:0,fontSize:17,fontWeight:700,color:"#1E293B"}}>{event?"일정 수정":"새 일정"}{isDooray&&<span style={{fontSize:11,color:"#3E6FE0",fontWeight:500}}> (두레이)</span>}</h3><button onClick={onClose} style={closeS}>✕</button></div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <input value={f.title} onChange={e=>u("title",e.target.value)} placeholder="📌 일정 제목 *" style={inpS} autoFocus/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+          <div><label style={labS}>시작일</label><input type="date" value={f.date} onChange={e=>u("date",e.target.value)} style={inpS}/></div>
+          <div><label style={labS}>종료일</label><input type="date" value={f.endDate||""} onChange={e=>u("endDate",e.target.value)} style={inpS}/></div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+          <div><label style={labS}>시작</label><input type="time" value={f.time} onChange={e=>u("time",e.target.value)} style={inpS}/></div>
+          <div><label style={labS}>종료</label><input type="time" value={f.endTime} onChange={e=>u("endTime",e.target.value)} style={inpS}/></div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+          <div><label style={labS}>카테고리</label><select value={f.category} onChange={e=>u("category",e.target.value)} style={inpS}>
+            {Object.entries(CAT).map(([k,v])=><option key={k} value={k}>{v.i} {v.l}</option>)}</select></div>
+          <div><label style={labS}>⏰ 알람</label><select value={f.alarm} onChange={e=>u("alarm",Number(e.target.value))} style={inpS}><option value={-1}>없음</option>
+            {ALARM_OPTS.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}</select></div>
+        </div>
+        <div><label style={labS}>우선순위</label>
+          <div style={{display:"flex",gap:5}}>{[["high","상"],["medium","중"],["low","하"]].map(([k,l])=>
+            <button key={k} onClick={()=>u("priority",k)} style={{flex:1,padding:"7px 0",borderRadius:8,border:f.priority===k?`2px solid ${PRI[k].dot}`:"2px solid #E2E8F0",background:f.priority===k?PRI[k].bg:"#fff",color:f.priority===k?PRI[k].text:"#64748B",fontWeight:600,fontSize:12,cursor:"pointer"}}>{l}</button>
+          )}</div></div>
+        <CompanyAC contacts={contacts} value={f.company||""} onChange={v=>u("company",v)}/>
+        <ContactPicker contacts={contacts} value={f.attendees} onChange={v=>u("attendees",v)} onAddNew={onAddContact}/>
+        <input value={f.location} onChange={e=>u("location",e.target.value)} placeholder="📍 장소" style={inpS}/>
+        <textarea value={f.memo} onChange={e=>u("memo",e.target.value)} placeholder="📝 메모" rows={3} style={{...inpS,resize:"vertical"}}/>
+      </div>
+      <div style={{display:"flex",gap:6,marginTop:14}}>
+        {event&&<button onClick={()=>setConfirmDel(true)} style={{...btnS,background:"#FEE2E2",color:"#DC2626",fontSize:12}}>삭제</button>}
+        <div style={{flex:1}}/>
+        <button onClick={onClose} style={{...btnS,background:"#F1F5F9",color:"#64748B",fontSize:12}}>취소</button>
+        <button onClick={()=>{if(f.title.trim())onSave(f);}} style={{...btnS,background:"#1E293B",color:"#fff",fontSize:12,opacity:f.title.trim()?1:0.4}}>
+          {isDooray?"두레이 저장":"저장"}</button>
+      </div>
+      {confirmDel&&<ConfirmDialog message={`"${event.title}" 삭제?`} onConfirm={()=>onDelete(event.id)} onCancel={()=>setConfirmDel(false)}/>}
+    </div></div>
+  );
+}
+
+// ─── Contact Form ───
+function ContactForm({contact,onSave,onClose,onDelete}){
+  const[f,setF]=useState(contact||{id:uid(),name:"",company:"",phone:"",email:"",position:"",notes:""});
+  const[confirmDel,setConfirmDel]=useState(false);const u=(k,v)=>setF(p=>({...p,[k]:v}));
+  return(
+    <div style={modalOverlay} onClick={onClose}><div style={modalCont} onClick={e=>e.stopPropagation()}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <h3 style={{margin:0,fontSize:17,fontWeight:700,color:"#1E293B"}}>{contact?"연락처 수정":"새 연락처"}</h3><button onClick={onClose} style={closeS}>✕</button></div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <input value={f.name} onChange={e=>u("name",e.target.value)} placeholder="👤 이름 *" style={inpS} autoFocus/>
+        <input value={f.company} onChange={e=>u("company",e.target.value)} placeholder="🏢 회사" style={inpS}/>
+        <input value={f.position} onChange={e=>u("position",e.target.value)} placeholder="💼 직책" style={inpS}/>
+        <input value={f.phone} onChange={e=>u("phone",e.target.value)} placeholder="📱 전화번호" style={inpS} type="tel"/>
+        <input value={f.email} onChange={e=>u("email",e.target.value)} placeholder="📧 이메일" style={inpS} type="email"/>
+        <textarea value={f.notes} onChange={e=>u("notes",e.target.value)} placeholder="📝 메모" rows={2} style={{...inpS,resize:"vertical"}}/>
+      </div>
+      <div style={{display:"flex",gap:6,marginTop:14}}>
+        {contact&&<button onClick={()=>setConfirmDel(true)} style={{...btnS,background:"#FEE2E2",color:"#DC2626",fontSize:12}}>삭제</button>}
+        <div style={{flex:1}}/><button onClick={onClose} style={{...btnS,background:"#F1F5F9",color:"#64748B",fontSize:12}}>취소</button>
+        <button onClick={()=>{if(f.name.trim())onSave(f);}} style={{...btnS,background:"#1E293B",color:"#fff",fontSize:12,opacity:f.name.trim()?1:0.4}}>저장</button></div>
+      {confirmDel&&<ConfirmDialog message={`"${contact.name}" 삭제?`} onConfirm={()=>onDelete(contact.id)} onCancel={()=>setConfirmDel(false)}/>}
+    </div></div>
+  );
+}
+
+// ─── Todo Form ───
+function TodoForm({todo,onSave,onClose,onDelete}){
+  const[f,setF]=useState(todo||{id:uid(),title:"",priority:"medium",createdDate:TODAY,completed:false,completedDate:null,category:"업무",notes:"",dueDate:""});
+  const[confirmDel,setConfirmDel]=useState(false);const u=(k,v)=>setF(p=>({...p,[k]:v}));
+  return(
+    <div style={modalOverlay} onClick={onClose}><div style={modalCont} onClick={e=>e.stopPropagation()}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <h3 style={{margin:0,fontSize:17,fontWeight:700,color:"#1E293B"}}>{todo?"할 일 수정":"새 할 일"}</h3><button onClick={onClose} style={closeS}>✕</button></div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <input value={f.title} onChange={e=>u("title",e.target.value)} placeholder="✏️ 할 일 *" style={inpS} autoFocus/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+          <div><label style={labS}>카테고리</label><select value={f.category} onChange={e=>u("category",e.target.value)} style={inpS}>
+            {TODO_CATS.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
+          <div><label style={labS}>📅 마감일</label><input type="date" value={f.dueDate||""} onChange={e=>u("dueDate",e.target.value)} style={inpS}/></div>
+        </div>
+        <div><label style={labS}>우선순위</label>
+          <div style={{display:"flex",gap:5}}>{[["high","상"],["medium","중"],["low","하"]].map(([k,l])=>
+            <button key={k} onClick={()=>u("priority",k)} style={{flex:1,padding:"7px 0",borderRadius:8,border:f.priority===k?`2px solid ${PRI[k].dot}`:"2px solid #E2E8F0",background:f.priority===k?PRI[k].bg:"#fff",color:f.priority===k?PRI[k].text:"#64748B",fontWeight:600,fontSize:12,cursor:"pointer"}}>{l}</button>
+          )}</div></div>
+        <textarea value={f.notes} onChange={e=>u("notes",e.target.value)} placeholder="📝 메모" rows={2} style={{...inpS,resize:"vertical"}}/>
+      </div>
+      <div style={{display:"flex",gap:6,marginTop:14}}>
+        {todo&&<button onClick={()=>setConfirmDel(true)} style={{...btnS,background:"#FEE2E2",color:"#DC2626",fontSize:12}}>삭제</button>}
+        <div style={{flex:1}}/><button onClick={onClose} style={{...btnS,background:"#F1F5F9",color:"#64748B",fontSize:12}}>취소</button>
+        <button onClick={()=>{if(f.title.trim())onSave(f);}} style={{...btnS,background:"#1E293B",color:"#fff",fontSize:12,opacity:f.title.trim()?1:0.4}}>저장</button></div>
+      {confirmDel&&<ConfirmDialog message={`"${todo.title}" 삭제?`} onConfirm={()=>onDelete(todo.id)} onCancel={()=>setConfirmDel(false)}/>}
+    </div></div>
+  );
+}
+
+// ─── Memo Form ───
+function MemoForm({memo,onSave,onClose,onDelete,onArchive}){
+  const[f,setF]=useState(memo||{id:uid(),title:"",date:TODAY,type:"free",content:"",attendees:"",agenda:"",decisions:"",actionItems:"",nextMeeting:"",tags:"",attachments:[],voiceNotes:[]});
+  const[confirmDel,setConfirmDel]=useState(false);const u=(k,v)=>setF(p=>({...p,[k]:v}));
+  const mt=MEMO_T[f.type]||MEMO_T.free;const fileRef=useRef(null);const camRef=useRef(null);const[recording,setRecording]=useState(false);
+  const handleFile=e=>{const files=Array.from(e.target.files||[]);const atts=files.map(f=>{const r={id:uid(),name:f.name,type:f.type.startsWith("image/")?"image":"file",size:f.size};if(r.type==="image")r.preview=URL.createObjectURL(f);return r;});u("attachments",[...(f.attachments||[]),...atts]);};
+  const handleCamera=e=>{const file=e.target.files?.[0];if(file)u("attachments",[...(f.attachments||[]),{id:uid(),name:`photo_${Date.now()}.jpg`,type:"image",preview:URL.createObjectURL(file)}]);};
+  const startRec=async()=>{try{const s=await navigator.mediaDevices.getUserMedia({audio:true});const mr=new MediaRecorder(s);const ch=[];mr.ondataavailable=e=>ch.push(e.data);mr.onstop=()=>{s.getTracks().forEach(t=>t.stop());u("voiceNotes",[...(f.voiceNotes||[]),{id:uid(),date:new Date().toLocaleString("ko-KR")}]);};mr.start();setRecording(true);setTimeout(()=>{if(mr.state==="recording"){mr.stop();setRecording(false);}},60000);window._rec=mr;}catch{}};
+  const stopRec=()=>{if(window._rec&&window._rec.state==="recording")window._rec.stop();setRecording(false);};
+  return(
+    <div style={modalOverlay} onClick={onClose}><div style={{...modalCont,maxHeight:"90vh",overflow:"auto"}} onClick={e=>e.stopPropagation()}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <h3 style={{margin:0,fontSize:17,fontWeight:700,color:"#1E293B"}}>{memo?"메모 수정":"새 메모"}</h3><button onClick={onClose} style={closeS}>✕</button></div>
+      <div style={{display:"flex",gap:4,marginBottom:12,flexWrap:"wrap"}}>
+        {Object.entries(MEMO_T).map(([k,v])=><button key={k} onClick={()=>u("type",k)}
+          style={{padding:"4px 8px",borderRadius:16,border:f.type===k?`2px solid ${v.color}`:"2px solid #E2E8F0",background:f.type===k?v.color+"18":"#fff",color:f.type===k?v.color:"#64748B",fontWeight:600,fontSize:10,cursor:"pointer"}}>
+          {v.icon} {v.label}</button>)}
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <input value={f.title} onChange={e=>u("title",e.target.value)} placeholder={`${mt.icon} 제목 *`} style={inpS} autoFocus/>
+        <input type="date" value={f.date} onChange={e=>u("date",e.target.value)} style={inpS}/>
+        {f.type==="meeting"&&<>
+          <input value={f.attendees} onChange={e=>u("attendees",e.target.value)} placeholder="👥 참석자" style={inpS}/>
+          <textarea value={f.agenda} onChange={e=>u("agenda",e.target.value)} placeholder="📋 안건" rows={2} style={{...inpS,resize:"vertical"}}/>
+          <textarea value={f.decisions} onChange={e=>u("decisions",e.target.value)} placeholder="✅ 결정사항" rows={2} style={{...inpS,resize:"vertical"}}/>
+          <textarea value={f.actionItems} onChange={e=>u("actionItems",e.target.value)} placeholder="🎯 Action Items" rows={2} style={{...inpS,resize:"vertical"}}/>
+          <input value={f.nextMeeting} onChange={e=>u("nextMeeting",e.target.value)} placeholder="📅 다음 미팅" style={inpS}/></>}
+        {f.type==="idea"&&<><textarea value={f.content} onChange={e=>u("content",e.target.value)} placeholder="💡 아이디어..." rows={4} style={{...inpS,resize:"vertical"}}/>
+          <input value={f.tags} onChange={e=>u("tags",e.target.value)} placeholder="🏷️ 태그 (쉼표 구분)" style={inpS}/></>}
+        {f.type!=="meeting"&&f.type!=="idea"&&<textarea value={f.content} onChange={e=>u("content",e.target.value)}
+          placeholder={f.type==="diary"?"📔 오늘의 일기...":"📝 메모..."} rows={4} style={{...inpS,resize:"vertical"}}/>}
+        <div style={{background:"#F8FAFC",borderRadius:10,padding:10}}>
+          <div style={{fontSize:10,fontWeight:700,color:"#64748B",marginBottom:6}}>📎 첨부</div>
+          <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+            <button onClick={()=>fileRef.current?.click()} style={attachBtnS}>📁 파일</button>
+            <input ref={fileRef} type="file" multiple accept="image/*,.pdf,.doc,.docx" onChange={handleFile} style={{display:"none"}}/>
+            <button onClick={()=>camRef.current?.click()} style={attachBtnS}>📷 사진</button>
+            <input ref={camRef} type="file" accept="image/*" capture="environment" onChange={handleCamera} style={{display:"none"}}/>
+            <button onClick={recording?stopRec:startRec} style={{...attachBtnS,border:recording?"2px solid #EF4444":"2px dashed #CBD5E1",background:recording?"#FEE2E2":"#fff",color:recording?"#DC2626":"#64748B"}}>
+              🎙️ {recording?"중지":"음성"}</button>
+          </div>
+          {(f.attachments?.length>0||f.voiceNotes?.length>0)&&<div style={{marginTop:6,display:"flex",flexDirection:"column",gap:3}}>
+            {f.attachments?.map((a,i)=><div key={a.id} style={{display:"flex",alignItems:"center",gap:4,background:"#fff",borderRadius:6,padding:"4px 6px"}}>
+              {a.type==="image"&&a.preview?<img src={a.preview} style={{width:24,height:24,borderRadius:4,objectFit:"cover"}} alt=""/>:<span>📄</span>}
+              <span style={{flex:1,fontSize:10,color:"#475569",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</span>
+              <button onClick={()=>u("attachments",f.attachments.filter((_,j)=>j!==i))} style={{border:"none",background:"none",color:"#94A3B8",cursor:"pointer",fontSize:12,padding:0}}>✕</button></div>)}
+            {f.voiceNotes?.map((v,i)=><div key={v.id} style={{display:"flex",alignItems:"center",gap:4,background:"#fff",borderRadius:6,padding:"4px 6px"}}>
+              <span>🎙️</span><span style={{flex:1,fontSize:10,color:"#475569"}}>음성 ({v.date})</span>
+              <button onClick={()=>u("voiceNotes",f.voiceNotes.filter((_,j)=>j!==i))} style={{border:"none",background:"none",color:"#94A3B8",cursor:"pointer",fontSize:12,padding:0}}>✕</button></div>)}
+          </div>}
+        </div>
+      </div>
+      <div style={{display:"flex",gap:6,marginTop:14}}>
+        {memo&&<button onClick={()=>setConfirmDel(true)} style={{...btnS,background:"#FEE2E2",color:"#DC2626",fontSize:12}}>삭제</button>}
+        {memo&&onArchive&&<button onClick={()=>onArchive({...f})} title="완료 처리 → 보관함으로 이동" style={{...btnS,background:"#DCFCE7",color:"#15803D",fontSize:12}}>✅ 완료</button>}
+        <div style={{flex:1}}/><button onClick={onClose} style={{...btnS,background:"#F1F5F9",color:"#64748B",fontSize:12}}>취소</button>
+        <button onClick={()=>{if(f.title.trim())onSave(f);}} style={{...btnS,background:"#1E293B",color:"#fff",fontSize:12,opacity:f.title.trim()?1:0.4}}>저장</button></div>
+      {confirmDel&&<ConfirmDialog message={`"${memo.title}" 삭제?`} onConfirm={()=>onDelete(memo.id)} onCancel={()=>setConfirmDel(false)}/>}
+    </div></div>
+  );
+}
+
+// ─── Routine Tab ───
+function RoutineTab({routines,onToggle,today,items,onUpdateItems}){
+  const[view,setView]=useState("today");
+  const[editing,setEditing]=useState(false);
+  const[editItem,setEditItem]=useState(null); // null=closed, {}=new, {id:..}=edit
+  const[eiIcon,setEiIcon]=useState("⭐");const[eiLabel,setEiLabel]=useState("");const[eiShort,setEiShort]=useState("");
+  const[eiDays,setEiDays]=useState([]);const[eiTime,setEiTime]=useState("");
+  const ITEMS=items;
+  const TODAY_ITEMS=ITEMS.filter(r=>routineActive(r,today));
+  const todayData=routines[today]||{};
+  const done=TODAY_ITEMS.filter(r=>todayData[r.id]).length;
+  const total=TODAY_ITEMS.length;
+  const pct=total>0?Math.round(done/total*100):0;
+
+  const calcStats=(days)=>{
+    const result={};
+    let totalDone=0,totalPossible=0;
+    ITEMS.forEach(r=>{
+      const active=days.filter(d=>routineActive(r,d));
+      let cnt=0;active.forEach(d=>{if(routines[d]&&routines[d][r.id])cnt++;});
+      result[r.id]={done:cnt,total:active.length,pct:active.length>0?Math.round(cnt/active.length*100):0};
+      totalDone+=cnt;totalPossible+=active.length;
+    });
+    result._overall={done:totalDone,total:totalPossible,pct:totalPossible>0?Math.round(totalDone/totalPossible*100):0};result._days=days;return result;
+  };
+  const getDays=(type)=>{const d=[];const now=new Date();
+    if(type==="week"){for(let i=6;i>=0;i--){const t=new Date(now);t.setDate(t.getDate()-i);d.push(fmt(t));}}
+    else if(type==="month"){const y=now.getFullYear(),m=now.getMonth();for(let i=1;i<=now.getDate();i++)d.push(fmt(new Date(y,m,i)));}
+    else if(type==="year"){const y=now.getFullYear();let cur=new Date(y,0,1);while(cur<=now){d.push(fmt(cur));cur=new Date(cur.getTime()+864e5);}}
+    return d;};
+  let streak=0;
+  {let d=new Date();while(true){const ds=fmt(d);const rd=routines[ds]||{};const act=ITEMS.filter(r=>routineActive(r,ds));if(act.length>0&&act.every(r=>rd[r.id])){streak++;d=new Date(d.getTime()-864e5);}else break;}}
+  const stats=view!=="today"?calcStats(getDays(view)):null;
+
+  const openAdd=()=>{setEiIcon("⭐");setEiLabel("");setEiShort("");setEiDays([]);setEiTime("");setEditItem({});};
+  const openEdit=(r)=>{setEiIcon(r.icon);setEiLabel(r.label);setEiShort(r.short);setEiDays(r.days||[]);setEiTime(r.time||"");setEditItem(r);};
+  const toggleDay=(d)=>setEiDays(prev=>prev.includes(d)?prev.filter(x=>x!==d):[...prev,d].sort());
+  const saveItem=()=>{
+    if(!eiLabel.trim())return;
+    const fields={icon:eiIcon,label:eiLabel.trim(),short:eiShort.trim()||eiLabel.trim().substring(0,4),days:eiDays.length?eiDays:undefined,time:eiTime||undefined};
+    let next;
+    if(editItem.id){next=ITEMS.map(r=>r.id===editItem.id?{...r,...fields}:r);}
+    else{next=[...ITEMS,{id:"r_"+Date.now(),...fields}];}
+    onUpdateItems(next);setEditItem(null);
+  };
+  const schedLabel=(r)=>{if(!r.days||!r.days.length)return null;return `매주 ${r.days.map(d=>DAYS_KR[d]).join("·")}${r.time?" "+r.time:""}`;};
+  const deleteItem=(id)=>{onUpdateItems(ITEMS.filter(r=>r.id!==id));setEditItem(null);};
+  const moveItem=(idx,dir)=>{const n=[...ITEMS];const t=n[idx];n[idx]=n[idx+dir];n[idx+dir]=t;onUpdateItems(n);};
+
+  const icons=["💪","📗","📘","📚","✍️","💬","🏃","🧘","💊","🎯","📊","💻","🎵","🌍","⭐","🔥","💡","📖","🗣️","✅"];
+
+  return(<div>
+    {/* Today Progress */}
+    <div style={{background:"linear-gradient(135deg,#0F172A,#1E3A5F)",borderRadius:16,padding:"16px 14px",marginBottom:12}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div><div style={{fontSize:10,fontWeight:700,color:"#94A3B8",letterSpacing:1.5}}>🔥 오늘의 루틴</div>
+          <div style={{fontSize:13,fontWeight:700,color:"#E2E8F0",marginTop:2}}>{(()=>{const d=new Date();return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일 (${DAYS_KR[d.getDay()]})`})()}</div>
+          <div style={{fontSize:22,fontWeight:900,color:"#fff",marginTop:2}}>{done}/{total} <span style={{fontSize:13,color:pct===100?"#4ADE80":"#FBBF24"}}>{pct}%</span></div></div>
+        <div style={{textAlign:"center"}}>
+          <div style={{fontSize:28,fontWeight:900,color:streak>0?"#F97316":"#475569"}}>{streak}</div>
+          <div style={{fontSize:9,color:"#94A3B8",fontWeight:600}}>연속일</div></div>
+      </div>
+      <div style={{background:"rgba(255,255,255,0.1)",borderRadius:10,height:8,overflow:"hidden"}}>
+        <div style={{width:`${pct}%`,height:"100%",background:pct===100?"linear-gradient(90deg,#4ADE80,#22C55E)":"linear-gradient(90deg,#3B82F6,#8B5CF6)",borderRadius:10,transition:"width 0.5s"}}/>
+      </div>
+      {pct===100&&<div style={{textAlign:"center",marginTop:8,fontSize:12,color:"#4ADE80",fontWeight:700}}>🎉 오늘 루틴 완료!</div>}
+    </div>
+
+    {/* Edit toggle + Add button */}
+    <div style={{display:"flex",justifyContent:"flex-end",gap:6,marginBottom:8}}>
+      <button onClick={()=>setEditing(!editing)} style={{border:"none",background:editing?"#1E293B":"#F1F5F9",color:editing?"#fff":"#64748B",borderRadius:8,padding:"5px 10px",fontSize:10,fontWeight:600,cursor:"pointer"}}>{editing?"✓ 완료":"✏️ 편집"}</button>
+      {editing&&<button onClick={openAdd} style={{border:"none",background:"#3B82F6",color:"#fff",borderRadius:8,padding:"5px 10px",fontSize:10,fontWeight:600,cursor:"pointer"}}>+ 추가</button>}
+    </div>
+
+    {/* Edit Modal */}
+    {editItem!==null&&<div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.5)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setEditItem(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:20,width:"100%",maxWidth:360,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{fontSize:16,fontWeight:800,marginBottom:14}}>{editItem.id?"루틴 수정":"루틴 추가"}</div>
+        <div style={{fontSize:11,fontWeight:600,color:"#64748B",marginBottom:6}}>아이콘</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:12}}>
+          {icons.map(ic=><button key={ic} onClick={()=>setEiIcon(ic)} style={{width:32,height:32,borderRadius:8,border:eiIcon===ic?"2px solid #3B82F6":"2px solid #E2E8F0",background:eiIcon===ic?"#EFF6FF":"#fff",fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>{ic}</button>)}
+        </div>
+        <div style={{fontSize:11,fontWeight:600,color:"#64748B",marginBottom:4}}>루틴명 *</div>
+        <input value={eiLabel} onChange={e=>setEiLabel(e.target.value)} placeholder="예: 운동 30분 이상" style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"2px solid #E2E8F0",fontSize:14,marginBottom:10,boxSizing:"border-box"}}/>
+        <div style={{fontSize:11,fontWeight:600,color:"#64748B",marginBottom:4}}>짧은 이름 (통계용)</div>
+        <input value={eiShort} onChange={e=>setEiShort(e.target.value)} placeholder="예: 운동" style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"2px solid #E2E8F0",fontSize:14,marginBottom:10,boxSizing:"border-box"}}/>
+        <div style={{fontSize:11,fontWeight:600,color:"#64748B",marginBottom:4}}>반복 요일 <span style={{fontWeight:400,color:"#94A3B8"}}>(미선택 = 매일)</span></div>
+        <div style={{display:"flex",gap:4,marginBottom:10}}>
+          {DAYS_KR.map((d,i)=><button key={i} onClick={()=>toggleDay(i)} style={{flex:1,padding:"7px 0",borderRadius:8,border:eiDays.includes(i)?"2px solid #3B82F6":"2px solid #E2E8F0",background:eiDays.includes(i)?"#3B82F6":"#fff",color:eiDays.includes(i)?"#fff":i===0?"#EF4444":i===6?"#3B82F6":"#64748B",fontSize:12,fontWeight:700,cursor:"pointer"}}>{d}</button>)}
+        </div>
+        <div style={{fontSize:11,fontWeight:600,color:"#64748B",marginBottom:4}}>시간 <span style={{fontWeight:400,color:"#94A3B8"}}>(선택)</span></div>
+        <input type="time" value={eiTime} onChange={e=>setEiTime(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"2px solid #E2E8F0",fontSize:14,marginBottom:14,boxSizing:"border-box"}}/>
+        <div style={{display:"flex",gap:8}}>
+          {editItem.id&&<button onClick={()=>deleteItem(editItem.id)} style={{padding:"10px 0",borderRadius:10,border:"none",background:"#FEE2E2",color:"#DC2626",fontSize:13,fontWeight:700,cursor:"pointer",flex:1}}>삭제</button>}
+          <button onClick={()=>setEditItem(null)} style={{padding:"10px 0",borderRadius:10,border:"2px solid #E2E8F0",background:"#fff",color:"#64748B",fontSize:13,fontWeight:600,cursor:"pointer",flex:1}}>취소</button>
+          <button onClick={saveItem} style={{padding:"10px 0",borderRadius:10,border:"none",background:"#3B82F6",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",flex:1.5}}>저장</button>
+        </div>
+      </div>
+    </div>}
+
+    {/* Checklist */}
+    <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
+      {(editing?ITEMS:TODAY_ITEMS).map((r,i)=>{const idx=ITEMS.indexOf(r);const checked=!!todayData[r.id];const sched=schedLabel(r);const activeToday=routineActive(r,today);const isWeekly=!!sched;return(
+        <div key={r.id} style={{display:"flex",alignItems:"center",gap:6,opacity:editing&&!activeToday?0.55:1}}>
+          <div onClick={()=>!editing&&onToggle(today,r.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",background:checked?"#F0FDF4":isWeekly?"#FFFBEB":"#fff",borderRadius:12,cursor:editing?"default":"pointer",borderLeft:`4px solid ${checked?"#22C55E":isWeekly?"#F59E0B":"#E2E8F0"}`,boxShadow:"0 1px 3px rgba(0,0,0,0.04)",transition:"all 0.2s",flex:1,minWidth:0}}>
+            <div style={{width:24,height:24,borderRadius:7,border:`2px solid ${checked?"#22C55E":"#CBD5E1"}`,background:checked?"#22C55E":"#fff",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:14,fontWeight:700,flexShrink:0,transition:"all 0.2s"}}>
+              {checked&&"✓"}</div>
+            <span style={{fontSize:18,flexShrink:0}}>{r.icon}</span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:14,fontWeight:600,color:checked?"#16A34A":"#1E293B",textDecoration:checked?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.label}</div>
+              {sched&&<div style={{fontSize:10,fontWeight:700,color:"#D97706",marginTop:2}}>🔁 {sched}</div>}
+            </div>
+            {checked&&!editing&&<span style={{fontSize:10,color:"#22C55E",fontWeight:700}}>완료</span>}
+          </div>
+          {editing&&<div style={{display:"flex",flexDirection:"column",gap:2,flexShrink:0}}>
+            {idx>0&&<button onClick={()=>moveItem(idx,-1)} style={{border:"none",background:"#F1F5F9",borderRadius:4,width:24,height:20,cursor:"pointer",fontSize:10,color:"#64748B"}}>▲</button>}
+            {idx<ITEMS.length-1&&<button onClick={()=>moveItem(idx,1)} style={{border:"none",background:"#F1F5F9",borderRadius:4,width:24,height:20,cursor:"pointer",fontSize:10,color:"#64748B"}}>▼</button>}
+          </div>}
+          {editing&&<button onClick={()=>openEdit(r)} style={{border:"none",background:"#EFF6FF",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:14,flexShrink:0,color:"#3B82F6"}}>✏️</button>}
+        </div>);})}
+    </div>
+
+    {/* Stats Toggle */}
+    <div style={{display:"flex",gap:4,marginBottom:10}}>
+      {[["today","오늘"],["week","주간"],["month","월간"],["year","연간"]].map(([k,l])=>
+        <button key={k} onClick={()=>setView(k)} style={{flex:1,padding:"7px 0",borderRadius:8,border:view===k?"2px solid #1E293B":"2px solid #E2E8F0",background:view===k?"#1E293B":"#fff",color:view===k?"#fff":"#64748B",fontWeight:700,fontSize:11,cursor:"pointer"}}>{l}</button>)}
+    </div>
+
+    {/* Stats View */}
+    {stats&&<div style={{background:"#fff",borderRadius:14,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.05)"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div style={{fontSize:14,fontWeight:700,color:"#1E293B"}}>📊 {view==="week"?"주간":view==="month"?"월간":"연간"} 통계</div>
+        <div style={{fontSize:22,fontWeight:900,color:stats._overall.pct>=80?"#22C55E":stats._overall.pct>=50?"#F59E0B":"#EF4444"}}>{stats._overall.pct}%</div>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {ITEMS.map(r=>{const s=stats[r.id];if(!s||s.total===0)return null;return(
+          <div key={r.id}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+              <span style={{fontSize:12,fontWeight:600,color:"#1E293B"}}>{r.icon} {r.short}</span>
+              <span style={{fontSize:11,color:"#64748B"}}>{s.done}/{s.total}일 ({s.pct}%)</span>
+            </div>
+            <div style={{background:"#F1F5F9",borderRadius:6,height:6,overflow:"hidden"}}>
+              <div style={{width:`${s.pct}%`,height:"100%",background:s.pct>=80?"#22C55E":s.pct>=50?"#F59E0B":"#EF4444",borderRadius:6,transition:"width 0.4s"}}/>
+            </div>
+          </div>);})}
+      </div>
+      {view==="week"&&<div style={{marginTop:12}}>
+        <div style={{fontSize:11,fontWeight:700,color:"#64748B",marginBottom:6}}>일별 달성</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
+          {stats._days.map(d=>{const rd=routines[d]||{};const act=ITEMS.filter(r=>routineActive(r,d));const cnt=act.filter(r=>rd[r.id]).length;const full=act.length>0&&cnt===act.length;const dp=pD(d);
+            return(<div key={d} style={{textAlign:"center",padding:"4px 0",borderRadius:6,background:full?"#DCFCE7":cnt>0?"#FEF3C7":"#F1F5F9"}}>
+              <div style={{fontSize:8,color:"#94A3B8"}}>{DAYS_KR[dp.getDay()]}</div>
+              <div style={{fontSize:12,fontWeight:800,color:full?"#22C55E":cnt>0?"#F59E0B":"#CBD5E1"}}>{cnt}/{act.length}</div>
+              <div style={{fontSize:7,color:"#94A3B8"}}>{dp.getDate()}일</div>
+            </div>);})}
+        </div>
+      </div>}
+    </div>}
+  </div>);
+}
+
+// ─── News Tab ───
+function NewsTab({onSave,isItemSaved,onShare}){
+  const[news,setNews]=useState(null);const[newsLoading,setNewsLoading]=useState(false);const[newsFilter,setNewsFilter]=useState("all");const[newsRegion,setNewsRegion]=useState("all");
+  const todayStr=(()=>{const d=new Date();return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일 (${DAYS_KR[d.getDay()]})`;})();
+  const fetchNews=async()=>{
+    setNewsLoading(true);
+    try{
+      const r=await fetch(`${NEWS_API}?date=${fmt(new Date())}`);const d=await r.json();
+      if(d.articles)setNews(d.articles);
+    }catch(e){console.error("News fetch:",e);}
+    setNewsLoading(false);
+  };
+  useEffect(()=>{fetchNews();},[]);
+  const filtered=news?news.filter(a=>(newsFilter==="all"||a.category===newsFilter)&&(newsRegion==="all"||a.region===newsRegion)):[];
+  return(<div>
+    <div style={{background:"linear-gradient(135deg,#1E293B,#334155)",borderRadius:14,padding:"14px 16px",marginBottom:12}}>
+      <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",letterSpacing:1.5}}>📰 오늘의 기사</div>
+      <div style={{fontSize:14,fontWeight:700,color:"#F1F5F9",marginTop:2}}>{todayStr}</div>
+      <div style={{fontSize:10,color:"#64748B",marginTop:2}}>바이오 · 제약 · 의료 · AI 분야</div>
+    </div>
+    <div style={{display:"flex",gap:4,marginBottom:8,flexWrap:"wrap"}}>
+      {[["all","전체"],["bio","바이오"],["pharma","제약"],["medical","의료"],["ai","AI"]].map(([k,l])=>
+        <button key={k} onClick={()=>setNewsFilter(k)} style={{padding:"4px 10px",borderRadius:16,border:newsFilter===k?"2px solid #1E293B":"2px solid #E2E8F0",background:newsFilter===k?"#1E293B":"#fff",color:newsFilter===k?"#fff":"#64748B",fontWeight:600,fontSize:10,cursor:"pointer"}}>{l}</button>)}
+    </div>
+    <div style={{display:"flex",gap:4,marginBottom:10}}>
+      {[["all","전체"],["kr","🇰🇷 국내"],["intl","🌍 해외"]].map(([k,l])=>
+        <button key={k} onClick={()=>setNewsRegion(k)} style={{padding:"4px 10px",borderRadius:16,border:newsRegion===k?"2px solid #3B82F6":"2px solid #E2E8F0",background:newsRegion===k?"#EFF6FF":"#fff",color:newsRegion===k?"#2563EB":"#64748B",fontWeight:600,fontSize:10,cursor:"pointer"}}>{l}</button>)}
+      <div style={{flex:1}}/>
+      <button onClick={fetchNews} style={{padding:"4px 10px",borderRadius:16,border:"2px solid #E2E8F0",background:"#fff",color:"#64748B",fontWeight:600,fontSize:10,cursor:"pointer"}}>🔄</button>
+    </div>
+    {newsLoading?<div style={{textAlign:"center",padding:"40px 0",color:"#94A3B8"}}><div style={{fontSize:28}}>📰</div><div style={{fontSize:13,marginTop:4}}>기사 로딩 중...</div></div>
+    :!news?<div style={{textAlign:"center",padding:"40px 0",color:"#94A3B8"}}><div style={{fontSize:28}}>📰</div><div style={{fontSize:13,marginTop:4}}>기사를 불러올 수 없습니다</div><div style={{fontSize:11,marginTop:4,color:"#CBD5E1"}}>api/news.js 배포가 필요합니다</div></div>
+    :filtered.length===0?<div style={{textAlign:"center",padding:"30px 0",color:"#94A3B8"}}>해당 카테고리 기사가 없습니다</div>
+    :<div style={{display:"flex",flexDirection:"column",gap:8}}>
+      {filtered.map((a,i)=>{const saved=isItemSaved(a.link);return(
+        <div key={i} style={{background:"#fff",borderRadius:12,padding:"12px 14px",boxShadow:"0 1px 4px rgba(0,0,0,0.05)",transition:"transform 0.15s"}}>
+          <div style={{display:"flex",gap:6,marginBottom:6,flexWrap:"wrap",alignItems:"center"}}>
+            <span style={{fontSize:9,padding:"1px 6px",borderRadius:4,fontWeight:700,
+              background:a.category==="bio"?"#DCFCE7":a.category==="pharma"?"#DBEAFE":a.category==="medical"?"#FEF3C7":"#F3E8FF",
+              color:a.category==="bio"?"#16A34A":a.category==="pharma"?"#2563EB":a.category==="medical"?"#D97706":"#7C3AED"
+            }}>{a.category==="bio"?"바이오":a.category==="pharma"?"제약":a.category==="medical"?"의료":"AI"}</span>
+            <span style={{fontSize:9,padding:"1px 6px",borderRadius:4,fontWeight:600,background:a.region==="kr"?"#FFF1F2":"#F0F9FF",color:a.region==="kr"?"#E11D48":"#0369A1"}}>{a.region==="kr"?"🇰🇷 국내":"🌍 해외"}</span>
+            {a.source&&<span style={{fontSize:9,color:"#94A3B8"}}>{a.source}</span>}
+            <div style={{flex:1}}/>
+            <button onClick={()=>onSave({...a,type:"news"})} style={{border:"none",background:"none",cursor:"pointer",fontSize:14,padding:0,color:saved?"#F59E0B":"#CBD5E1"}}>{saved?"★":"☆"}</button>
+            <button onClick={()=>onShare(a.link,a.title)} style={{border:"none",background:"none",cursor:"pointer",fontSize:12,padding:0,color:"#94A3B8"}}>📤</button>
+          </div>
+          <a href={a.link} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none"}}>
+            <div style={{fontSize:14,fontWeight:700,color:"#1E293B",lineHeight:1.5,marginBottom:4,wordBreak:"keep-all"}}>{a.title}</div>
+            {a.description&&<div style={{fontSize:12,color:"#64748B",lineHeight:1.5,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{a.description}</div>}
+          </a>
+          <div style={{fontSize:10,color:"#94A3B8",marginTop:6}}>{a.pubDate||""}</div>
+        </div>);})}
+    </div>}
+  </div>);
+}
+
+// ─── PubMed Tab ───
+function PubMedTab({onSave,isItemSaved,onShare}){
+  const[papers,setPapers]=useState([]);const[pmLoading,setPmLoading]=useState(false);const[pmQuery,setPmQuery]=useState("drug discovery AI");
+  const todayStr=(()=>{const d=new Date();return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일 (${DAYS_KR[d.getDay()]})`;})();
+  const queries=["drug discovery AI","multi-omics biomarker","clinical trial simulation","HDAC6 inhibitor","sarcopenia treatment","digital twin medicine"];
+  const searchPubMed=async(q)=>{
+    setPmLoading(true);setPmQuery(q);
+    try{
+      const dateFilter=`&mindate=${fmt(new Date(Date.now()-7*864e5)).replace(/-/g,"/")}&maxdate=${fmt(new Date()).replace(/-/g,"/")}&datetype=edat`;
+      const sr=await fetch(`${PUBMED_BASE}/esearch.fcgi?db=pubmed&term=${encodeURIComponent(q)}${dateFilter}&retmax=15&sort=date&retmode=json`);
+      const sd=await sr.json();const ids=(sd.esearchresult?.idlist||[]).join(",");
+      if(!ids){setPapers([]);setPmLoading(false);return;}
+      const dr=await fetch(`${PUBMED_BASE}/esummary.fcgi?db=pubmed&id=${ids}&retmode=json`);
+      const dd=await dr.json();
+      const ps=Object.values(dd.result||{}).filter(p=>p.uid).map(p=>({
+        pmid:p.uid,title:p.title,authors:(p.authors||[]).slice(0,3).map(a=>a.name).join(", "),
+        journal:p.source,date:p.pubdate,doi:p.elocationid||"",
+        link:`https://pubmed.ncbi.nlm.nih.gov/${p.uid}/`
+      }));
+      setPapers(ps);
+    }catch(e){console.error("PubMed:",e);setPapers([]);}
+    setPmLoading(false);
+  };
+  useEffect(()=>{searchPubMed("drug discovery AI");},[]);
+  return(<div>
+    <div style={{background:"linear-gradient(135deg,#064E3B,#065F46)",borderRadius:14,padding:"14px 16px",marginBottom:12}}>
+      <div style={{fontSize:10,fontWeight:700,color:"#6EE7B7",letterSpacing:1.5}}>🔬 최신 논문</div>
+      <div style={{fontSize:14,fontWeight:700,color:"#F1F5F9",marginTop:2}}>{todayStr}</div>
+      <div style={{fontSize:10,color:"#A7F3D0",marginTop:2}}>최근 7일 내 출판 논문</div>
+    </div>
+    <div style={{display:"flex",gap:4,marginBottom:10,flexWrap:"wrap"}}>
+      {queries.map(q=><button key={q} onClick={()=>searchPubMed(q)} style={{padding:"4px 8px",borderRadius:16,border:pmQuery===q?"2px solid #059669":"2px solid #E2E8F0",background:pmQuery===q?"#ECFDF5":"#fff",color:pmQuery===q?"#059669":"#64748B",fontWeight:600,fontSize:9,cursor:"pointer",whiteSpace:"nowrap"}}>{q}</button>)}
+    </div>
+    {pmLoading?<div style={{textAlign:"center",padding:"40px 0",color:"#94A3B8"}}><div style={{fontSize:28}}>🔬</div><div style={{fontSize:13,marginTop:4}}>논문 검색 중...</div></div>
+    :papers.length===0?<div style={{textAlign:"center",padding:"30px 0",color:"#94A3B8"}}>검색 결과가 없습니다</div>
+    :<div style={{display:"flex",flexDirection:"column",gap:6}}>
+      {papers.map(p=>{const saved=isItemSaved(p.link);return(
+        <div key={p.pmid} style={{background:"#fff",borderRadius:12,padding:"12px 14px",borderLeft:"4px solid #059669",boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+            <a href={p.link} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none",flex:1,minWidth:0}}>
+              <div style={{fontSize:13,fontWeight:700,color:"#1E293B",lineHeight:1.5,marginBottom:4,wordBreak:"keep-all"}}>{p.title}</div>
+              <div style={{fontSize:11,color:"#64748B",marginBottom:2}}>{p.authors}{p.authors?"...":""}</div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+                <span style={{fontSize:10,color:"#059669",fontWeight:600}}>{p.journal}</span>
+                <span style={{fontSize:10,color:"#94A3B8"}}>{p.date}</span>
+                <span style={{fontSize:9,background:"#ECFDF5",color:"#059669",padding:"1px 5px",borderRadius:4,fontWeight:600}}>PMID:{p.pmid}</span>
+              </div>
+            </a>
+            <div style={{display:"flex",flexDirection:"column",gap:4,flexShrink:0}}>
+              <button onClick={()=>onSave({...p,type:"pubmed",category:"pubmed",region:"intl"})} style={{border:"none",background:"none",cursor:"pointer",fontSize:14,padding:0,color:saved?"#F59E0B":"#CBD5E1"}}>{saved?"★":"☆"}</button>
+              <button onClick={()=>onShare(p.link,p.title)} style={{border:"none",background:"none",cursor:"pointer",fontSize:12,padding:0,color:"#94A3B8"}}>📤</button>
+            </div>
+          </div>
+        </div>);})}
+    </div>}
+  </div>);
+}
+
+// ─── Scrap Tab (Saved Items) ───
+function ScrapTab({items,onRemove,onShare}){
+  const[filter,setFilter]=useState("all");
+  const filtered=items.filter(s=>filter==="all"||s.type===filter);
+  return(<div>
+    <div style={{background:"linear-gradient(135deg,#78350F,#92400E)",borderRadius:14,padding:"14px 16px",marginBottom:12}}>
+      <div style={{fontSize:10,fontWeight:700,color:"#FDE68A",letterSpacing:1.5}}>📌 내 스크랩</div>
+      <div style={{fontSize:22,fontWeight:900,color:"#fff",marginTop:2}}>{items.length}<span style={{fontSize:13,color:"#FDE68A",marginLeft:6}}>건 저장됨</span></div>
+    </div>
+    <div style={{display:"flex",gap:4,marginBottom:10}}>
+      {[["all",`전체 (${items.length})`],["news",`📰 기사 (${items.filter(s=>s.type==="news").length})`],["pubmed",`🔬 논문 (${items.filter(s=>s.type==="pubmed").length})`]].map(([k,l])=>
+        <button key={k} onClick={()=>setFilter(k)} style={{padding:"5px 10px",borderRadius:16,border:filter===k?"2px solid #92400E":"2px solid #E2E8F0",background:filter===k?"#FEF3C7":"#fff",color:filter===k?"#92400E":"#64748B",fontWeight:600,fontSize:10,cursor:"pointer"}}>{l}</button>)}
+    </div>
+    {filtered.length===0?<div style={{textAlign:"center",padding:"40px 0",color:"#94A3B8"}}><div style={{fontSize:28}}>📌</div><div style={{fontSize:13,marginTop:4}}>저장한 항목이 없습니다</div><div style={{fontSize:11,marginTop:4,color:"#CBD5E1"}}>기사나 논문에서 ☆를 눌러 저장하세요</div></div>
+    :<div style={{display:"flex",flexDirection:"column",gap:6}}>
+      {filtered.map(s=>(
+        <div key={s.id||s.link} style={{background:"#fff",borderRadius:12,padding:"12px 14px",borderLeft:`4px solid ${s.type==="pubmed"?"#059669":"#3B82F6"}`,boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+            <a href={s.link} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none",flex:1,minWidth:0}}>
+              <div style={{display:"flex",gap:4,marginBottom:4,flexWrap:"wrap"}}>
+                <span style={{fontSize:9,padding:"1px 5px",borderRadius:4,fontWeight:700,background:s.type==="pubmed"?"#ECFDF5":"#EFF6FF",color:s.type==="pubmed"?"#059669":"#2563EB"}}>{s.type==="pubmed"?"🔬 논문":"📰 기사"}</span>
+                {s.category&&s.category!=="pubmed"&&<span style={{fontSize:9,padding:"1px 5px",borderRadius:4,fontWeight:600,background:"#F8FAFC",color:"#64748B"}}>{s.category==="bio"?"바이오":s.category==="pharma"?"제약":s.category==="medical"?"의료":s.category==="ai"?"AI":s.category}</span>}
+                {s.region&&<span style={{fontSize:9,color:"#94A3B8"}}>{s.region==="kr"?"🇰🇷":"🌍"}</span>}
+              </div>
+              <div style={{fontSize:13,fontWeight:700,color:"#1E293B",lineHeight:1.5,wordBreak:"keep-all"}}>{s.title}</div>
+              {s.journal&&<div style={{fontSize:10,color:"#059669",marginTop:2}}>{s.journal} · {s.date}</div>}
+              {s.source&&<div style={{fontSize:10,color:"#64748B",marginTop:2}}>{s.source}</div>}
+            </a>
+            <div style={{display:"flex",flexDirection:"column",gap:4,flexShrink:0}}>
+              <button onClick={()=>onShare(s.link,s.title)} style={{border:"none",background:"none",cursor:"pointer",fontSize:12,padding:0,color:"#94A3B8"}}>📤</button>
+              <button onClick={()=>onRemove(s)} style={{border:"none",background:"none",cursor:"pointer",fontSize:12,padding:0,color:"#EF4444"}}>🗑</button>
+            </div>
+          </div>
+          <div style={{fontSize:9,color:"#CBD5E1",marginTop:4}}>저장: {s.savedDate?new Date(s.savedDate).toLocaleDateString("ko-KR"):""}</div>
+        </div>))}
+    </div>}
+  </div>);
+}
+
+// ═══════ MAIN APP ═══════
+function BizPlanner(){
+  const[events,setEvents]=useState([]);const[todos,setTodos]=useState([]);const[memos,setMemos]=useState([]);const[contacts,setContacts]=useState([]);
+  const[loading,setLoading]=useState(true);const[tab,setTab]=useState("routine");
+  const[curDate,setCurDate]=useState(new Date());const[selDate,setSelDate]=useState(TODAY);
+  const[showEF,setShowEF]=useState(false);const[showTF,setShowTF]=useState(false);const[showMF,setShowMF]=useState(false);const[showCF,setShowCF]=useState(false);
+  const[editEv,setEditEv]=useState(null);const[editTd,setEditTd]=useState(null);const[editMe,setEditMe]=useState(null);const[editCo,setEditCo]=useState(null);
+  const[shareItem,setShareItem]=useState(null);const[showSettings,setShowSettings]=useState(false);
+  const cloudOkRef=useRef(false); // SAFETY: only allow cloud writes after successful cloud load
+  const[search,setSearch]=useState("");const[todoFilt,setTodoFilt]=useState("all");const[memoFilt,setMemoFilt]=useState("all");const[memoView,setMemoView]=useState("active");const[archQ,setArchQ]=useState("");
+  const[todoSort,setTodoSort]=useState("priority");const[syncSt,setSyncSt]=useState("idle");const[globalSearch,setGlobalSearch]=useState(false);
+  const[doorayStatus,setDoorayStatus]=useState(null);const[lastSync,setLastSync]=useState(null);
+  const[checkedEvs,setCheckedEvs]=useState(()=>{try{return JSON.parse(localStorage.getItem("bp-checked-evs")||"[]");}catch{return[];}});
+  const[showChecked,setShowChecked]=useState(false);
+  const[routines,setRoutines]=useState(()=>ld("bp-routines",{}));
+  const[savedItems,setSavedItems]=useState(()=>ld("bp-saved",[]));
+  const[memoArchive,setMemoArchive]=useState(()=>ld("bp-memo-archive",[]));
+  const[routineItems,setRoutineItems]=useState(()=>withWeekly(ld("bp-routine-items",DEFAULT_ROUTINES)));
+  // ─── Auth State ───
+  const[user,setUser]=useState(null);
+  const[authLoading,setAuthLoading]=useState(!!fbAuth);
+  const[skipLogin,setSkipLogin]=useState(()=>!!localStorage.getItem("bp-skip-login"));
+  const[cloudSt,setCloudSt]=useState("idle"); // idle, syncing, synced, error
+  const syncRef=useRef(null);
+
+  // ─── Auth Listener ───
+  const[loginPending,setLoginPending]=useState(false);
+  useEffect(()=>{
+    if(!fbAuth){setAuthLoading(false);return;}
+    try{fbAuth.setPersistence&&fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);}catch(e){}
+    let resolved=false;
+    const resolveAuth=(u)=>{
+      if(!resolved){resolved=true;setUser(u);setAuthLoading(false);setLoginPending(false);}
+      else{setUser(u);setLoginPending(false);}
+    };
+    // 1) Check redirect result FIRST (critical for mobile)
+    fbAuth.getRedirectResult().then(result=>{
+      if(result&&result.user){
+        console.log("✅ Redirect login:",result.user.email);
+        resolveAuth(result.user);
+      }
+    }).catch(e=>{console.warn("Redirect check:",e.code||e.message);});
+    // 2) Auth state listener (covers persisted sessions + popup)
+    const unsub=fbAuth.onAuthStateChanged(u=>{
+      console.log("Auth state:",u?u.email:"none");
+      // Small delay on first load to let redirect result resolve first
+      if(!resolved)setTimeout(()=>resolveAuth(u),500);
+      else resolveAuth(u);
+    });
+    // 3) Safety timeout
+    const timeout=setTimeout(()=>{if(!resolved){resolved=true;setAuthLoading(false);}},5000);
+    return()=>{unsub();clearTimeout(timeout);};
+  },[]);
+
+  const login=()=>{
+    if(!fbAuth||!fbGoogle)return;
+    // Always try popup first (most reliable across all browsers including mobile)
+    setLoginPending(true);
+    fbAuth.signInWithPopup(fbGoogle).then((result)=>{
+      setLoginPending(false);
+      if(result.credential){const t=result.credential.accessToken;if(t){sessionStorage.setItem('bp-gtoken',t);console.log("✅ Google token saved");}}
+    }).catch(e=>{
+      console.error("Login error:",e.code,e.message);
+      setLoginPending(false);
+      // If popup failed, try redirect as last resort
+      if(e.code==='auth/popup-blocked'){
+        alert("팝업이 차단되었습니다. 팝업을 허용해주세요.");
+      } else if(e.code==='auth/popup-closed-by-user'){
+        // User closed - do nothing
+      } else if(e.code==='auth/cancelled-popup-request'){
+        // Another popup was opened - do nothing
+      } else {
+        // Unknown error - try redirect
+        fbAuth.signInWithRedirect(fbGoogle).catch(()=>{});
+      }
+    });
+  };
+  const logout=()=>{
+    if(fbAuth)fbAuth.signOut();
+    cloudOkRef.current=false; // prevent any pending saves
+    setSkipLogin(false);localStorage.removeItem("bp-skip-login");
+    // Clear all state so next user gets fresh data
+    setEvents([]);setTodos([]);setMemos([]);setContacts([]);setRoutines({});setSavedItems([]);setRoutineItems(DEFAULT_ROUTINES);setMemoArchive([]);
+    // Clear localStorage for this session
+    ["bp-events","bp-todos","bp-memos","bp-contacts","bp-routines","bp-saved","bp-routine-items","bp-memo-archive"].forEach(k=>localStorage.removeItem(k));
+    setCloudSt("idle");setLoading(true);
+  };
+
+  // ─── Dooray Sync ───
+  const syncDooray = useCallback(async (currentLocalEvents)=>{
+    try {
+      setSyncSt("syncing");
+      const now = new Date();
+      const from = fmt(now); // today
+      const to = fmt(new Date(now.getFullYear(), now.getMonth()+2, 0)); // ~2 months ahead
+      const data = await doorayFetch("list",{from,to,size:200});
+      if(!data || !data.events) { setSyncSt("error"); return currentLocalEvents; }
+      
+      // Also get status
+      const status = await doorayFetch("status");
+      if(status) setDoorayStatus(status);
+      
+      // Merge: keep local events + past dooray events, replace current/future dooray events
+      const localOnly = (currentLocalEvents||[]).filter(e=>e.source!=="dooray");
+      const pastDooray = (currentLocalEvents||[]).filter(e=>e.source==="dooray" && e.date < from);
+      const doorayEvs = data.events.map(de=>({
+        ...de,
+        source:"dooray",
+        alarm:-1,
+        priority: de.priority || "medium",
+        category: de.category || "meeting",
+      }));
+      
+      const merged = [...localOnly, ...pastDooray, ...doorayEvs];
+      sv("bp-events", merged);
+      setEvents(merged);
+      setSyncSt("synced");
+      setLastSync(new Date());
+      console.log(`✅ Dooray sync: ${doorayEvs.length} events (pages:${data.pages||1})`);
+      return merged;
+    } catch(e) {
+      console.error("Dooray sync error:",e);
+      setSyncSt("error");
+      return currentLocalEvents;
+    }
+  },[]);
+
+  // ─── Push to Dooray ───
+  const pushToDooray = useCallback(async (ev, action="create")=>{
+    try {
+      if(action==="create"){
+        const result = await doorayPost("create",{
+          title: ev.title,
+          date: ev.date,
+          endDate: ev.endDate || ev.date,
+          time: ev.time || "09:00",
+          endTime: ev.endTime || "10:00",
+          location: ev.location || "",
+          memo: ev.memo || "",
+          attendees: ev.attendees || ""
+        });
+        return result;
+      } else if(action==="update" && ev.doorayId){
+        return await doorayPost("update",{
+          doorayId: ev.doorayId,
+          title: ev.title,
+          date: ev.date,
+          endDate: ev.endDate || ev.date,
+          time: ev.time || "09:00",
+          endTime: ev.endTime || "10:00",
+          location: ev.location || "",
+          memo: ev.memo || "",
+        });
+      } else if(action==="delete" && ev.doorayId){
+        return await doorayFetch("delete",{doorayId: ev.doorayId});
+      }
+    } catch(e){ console.error("Push to Dooray error:",e); }
+    return null;
+  },[]);
+
+  // ─── Init: load local + cloud + Dooray ───
+  useEffect(()=>{
+    if(authLoading) return; // Wait for auth to resolve
+    requestNotifPermission();
+    
+    if(user && fbDb){
+      // Logged in → load from cloud
+      setCloudSt("syncing");
+      cloudLoad(user.uid).then(cloud=>{
+        if(cloud && Object.keys(cloud).length>1){
+          // Cloud has data → load it
+          const ce=cloud['bp-events']||[],ct=cloud['bp-todos']||[],cm=cloud['bp-memos']||[],cc=cloud['bp-contacts']||[],cr=cloud['bp-routines']||{},cs=cloud['bp-saved']||[],ci=withWeekly(cloud['bp-routine-items']||DEFAULT_ROUTINES),ca=cloud['bp-memo-archive']||[];
+          setEvents(ce);sv('bp-events',ce);
+          setTodos(ct);sv('bp-todos',ct);
+          setMemos(cm);sv('bp-memos',cm);
+          setContacts(cc);sv('bp-contacts',cc);
+          setRoutines(cr);sv('bp-routines',cr);
+          setSavedItems(cs);sv('bp-saved',cs);
+          setMemoArchive(ca);sv('bp-memo-archive',ca);
+          setRoutineItems(ci);sv('bp-routine-items',ci);
+          cloudOkRef.current=true;
+          if(ci!==cloud['bp-routine-items'])cloudSaveAll(user.uid,{'bp-routine-items':ci}).catch(()=>{}); // persist weekly-routine migration
+          setCloudSt("synced");
+          setLoading(false);
+          syncDooray(ce);
+        } else if(cloud===null){
+          // No cloud doc at all → truly first login, upload local data
+          const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]),rr=ld('bp-routines',{}),ss=ld('bp-saved',[]),ri=withWeekly(ld('bp-routine-items',DEFAULT_ROUTINES)),ma=ld('bp-memo-archive',[]);
+          setEvents(e);setTodos(t);setMemos(m);setContacts(c);setRoutines(rr);setSavedItems(ss);setRoutineItems(ri);setMemoArchive(ma);setLoading(false);
+          // Only upload if there's actual data
+          if(e.length||t.length||m.length||c.length){
+            cloudSaveAll(user.uid,{'bp-events':e.filter(ev=>ev.source!=='dooray'),'bp-todos':t,'bp-memos':m,'bp-contacts':c,'bp-routines':rr,'bp-saved':ss,'bp-routine-items':ri,'bp-memo-archive':ma});
+          }
+          cloudOkRef.current=true;
+          setCloudSt("synced");
+          syncDooray(e);
+        } else {
+          // Cloud doc exists but might be empty → still load, allow writes
+          const ce=cloud['bp-events']||[],ct=cloud['bp-todos']||[],cm=cloud['bp-memos']||[],cc=cloud['bp-contacts']||[],cr=cloud['bp-routines']||{},cs=cloud['bp-saved']||[],ci=withWeekly(cloud['bp-routine-items']||DEFAULT_ROUTINES),ca=cloud['bp-memo-archive']||[];
+          setEvents(ce);sv('bp-events',ce);setTodos(ct);sv('bp-todos',ct);setMemos(cm);sv('bp-memos',cm);setContacts(cc);sv('bp-contacts',cc);setRoutines(cr);sv('bp-routines',cr);setSavedItems(cs);sv('bp-saved',cs);setRoutineItems(ci);sv('bp-routine-items',ci);setMemoArchive(ca);sv('bp-memo-archive',ca);
+          cloudOkRef.current=true;
+          setCloudSt("synced");setLoading(false);syncDooray(ce);
+        }
+      }).catch((err)=>{
+        console.error("Cloud load failed:",err);
+        // Cloud error → load local BUT DO NOT allow cloud writes (prevent overwrite!)
+        const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]),rr2=ld('bp-routines',{}),ss2=ld('bp-saved',[]),ri2=withWeekly(ld('bp-routine-items',DEFAULT_ROUTINES)),ma2=ld('bp-memo-archive',[]);
+        setEvents(e);setTodos(t);setMemos(m);setContacts(c);setRoutines(rr2);setSavedItems(ss2);setRoutineItems(ri2);setMemoArchive(ma2);setLoading(false);
+        cloudOkRef.current=false; // SAFETY: do NOT write to cloud
+        setCloudSt("error");
+        syncDooray(e);
+      });
+    } else {
+      // Not logged in → local only
+      const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]),rr3=ld('bp-routines',{}),ss3=ld('bp-saved',[]),ri3=withWeekly(ld('bp-routine-items',DEFAULT_ROUTINES)),ma3=ld('bp-memo-archive',[]);
+      setEvents(e);setTodos(t);setMemos(m);setContacts(c);setRoutines(rr3);setSavedItems(ss3);setRoutineItems(ri3);setMemoArchive(ma3);setLoading(false);
+      syncDooray(e);
+    }
+  },[user,authLoading]);
+
+  // ─── Cloud: sync on window focus (cross-device) ───
+  useEffect(()=>{
+    if(!user||!fbDb||!cloudOkRef.current) return;
+    const handler=async()=>{
+      setCloudSt("syncing");
+      const cloud=await cloudLoad(user.uid);
+      if(cloud){
+        if(cloud['bp-events']){const d=cloud['bp-events'];setEvents(d);sv('bp-events',d);}
+        if(cloud['bp-todos']){const d=cloud['bp-todos'];setTodos(d);sv('bp-todos',d);}
+        if(cloud['bp-memos']){const d=cloud['bp-memos'];setMemos(d);sv('bp-memos',d);}
+        if(cloud['bp-contacts']){const d=cloud['bp-contacts'];setContacts(d);sv('bp-contacts',d);}
+        if(cloud['bp-routines']){const d=cloud['bp-routines'];setRoutines(d);sv('bp-routines',d);}
+        if(cloud['bp-saved']){const d=cloud['bp-saved'];setSavedItems(d);sv('bp-saved',d);}
+        if(cloud['bp-memo-archive']){const d=cloud['bp-memo-archive'];setMemoArchive(d);sv('bp-memo-archive',d);}
+        if(cloud['bp-routine-items']){const d=cloud['bp-routine-items'];setRoutineItems(d);sv('bp-routine-items',d);}
+        syncDooray(cloud['bp-events']||[]);
+      }
+      setCloudSt("synced");
+    };
+    window.addEventListener('focus',handler);
+    // Also sync every 30s
+    const t=setInterval(handler,30000);
+    return()=>{window.removeEventListener('focus',handler);clearInterval(t);};
+  },[user,syncDooray]);
+
+  // ─── Periodic sync (every 60s) ───
+  useEffect(()=>{
+    syncRef.current = setInterval(async()=>{
+      const e = ld("bp-events",[]);
+      await syncDooray(e);
+    }, 60000);
+    return()=>clearInterval(syncRef.current);
+  },[syncDooray]);
+
+  // ─── Local storage sync (8s) ───
+  useEffect(()=>{const t=setInterval(()=>{const e=ld("bp-events",[]),t2=ld("bp-todos",[]),m=ld("bp-memos",[]),c=ld("bp-contacts",[]),ma=ld("bp-memo-archive",[]);setEvents(e);setTodos(t2);setMemos(m);setContacts(c);setMemoArchive(ma);},8000);return()=>clearInterval(t);},[]);
+
+  // ─── Auto Google Drive Backup (daily) ───
+  useEffect(()=>{
+    if(!user||!cloudOkRef.current)return;
+    const doAutoBackup=async()=>{
+      try{
+        const autoOn=localStorage.getItem('bp-auto-backup')==='true';
+        if(!autoOn)return;
+        const last=localStorage.getItem('bp-last-backup');
+        if(last&&(Date.now()-new Date(last).getTime())<23*60*60*1000)return; // less than 23h
+        const hasData=(ld('bp-todos',[])).length>0||(ld('bp-memos',[])).length>0||(ld('bp-events',[])).length>0;
+        if(!hasData)return;
+        console.log("🔄 Auto backup starting...");
+        const token=sessionStorage.getItem('bp-gtoken');
+        if(!token)return; // can't auto-backup without token
+        await driveBackup(token,{
+          'bp-events':ld('bp-events',[]).filter(e=>e.source!=='dooray'),
+          'bp-todos':ld('bp-todos',[]),'bp-memos':ld('bp-memos',[]),'bp-contacts':ld('bp-contacts',[]),
+          'bp-routines':ld('bp-routines',{}),'bp-saved':ld('bp-saved',[]),'bp-routine-items':ld('bp-routine-items',DEFAULT_ROUTINES),'bp-memo-archive':ld('bp-memo-archive',[])
+        });
+        localStorage.setItem('bp-last-backup',new Date().toISOString());
+        console.log("✅ Auto backup complete");
+      }catch(e){console.warn("Auto backup failed:",e);}
+    };
+    const t=setTimeout(doAutoBackup,10000); // 10s after load
+    return()=>clearTimeout(t);
+  },[user]);
+
+  useEffect(()=>{const h=e=>{if(e.key==="Escape"){if(shareItem)setShareItem(null);else if(showSettings)setShowSettings(false);else if(showEF){setShowEF(false);setEditEv(null);}else if(showTF){setShowTF(false);setEditTd(null);}else if(showMF){setShowMF(false);setEditMe(null);}else if(showCF){setShowCF(false);setEditCo(null);}else if(globalSearch){setGlobalSearch(false);setSearch("");}}}; document.addEventListener("keydown",h);return()=>document.removeEventListener("keydown",h);},[shareItem,showSettings,showEF,showTF,showMF,showCF,globalSearch]);
+
+  const persist=useCallback((k,d,s)=>{
+    s(d);sv(k,d);
+    // Debounced cloud save - ONLY if cloud was successfully loaded
+    if(user&&fbDb&&cloudOkRef.current){
+      clearTimeout(window._cloudSaveTimeout);
+      window._cloudSaveTimeout=setTimeout(()=>{
+        setCloudSt("syncing");
+        cloudSaveAll(user.uid,{
+          'bp-events':ld('bp-events',[]).filter(e=>e.source!=='dooray'),
+          'bp-todos':ld('bp-todos',[]),'bp-memos':ld('bp-memos',[]),'bp-contacts':ld('bp-contacts',[]),
+          'bp-routines':ld('bp-routines',{}),
+          'bp-saved':ld('bp-saved',[]),
+          'bp-routine-items':ld('bp-routine-items',DEFAULT_ROUTINES),
+          'bp-memo-archive':ld('bp-memo-archive',[])
+        }).then(()=>setCloudSt("synced")).catch(()=>setCloudSt("error"));
+      },1500);
+    }
+  },[user]);
+
+  // ─── Check/uncheck event ───
+  const toggleCheck=useCallback((evId)=>{
+    setCheckedEvs(prev=>{
+      const next=prev.includes(evId)?prev.filter(id=>id!==evId):[...prev,evId];
+      localStorage.setItem("bp-checked-evs",JSON.stringify(next));
+      return next;
+    });
+  },[]);
+
+  // ─── Routine toggle ───
+  const toggleRoutine=useCallback((date,routineId)=>{
+    setRoutines(prev=>{
+      const dayData={...prev[date]||{}};
+      dayData[routineId]=!dayData[routineId];
+      const next={...prev,[date]:dayData};
+      sv("bp-routines",next);
+      // Cloud save - only if cloud loaded OK
+      if(user&&fbDb&&cloudOkRef.current){
+        clearTimeout(window._routineSaveTimeout);
+        window._routineSaveTimeout=setTimeout(()=>{
+          cloudSaveAll(user.uid,{'bp-routines':next}).catch(()=>{});
+        },1000);
+      }
+      return next;
+    });
+  },[user]);
+
+  // ─── Update routine items (add/edit/delete/reorder) ───
+  const updateRoutineItems=useCallback((next)=>{
+    setRoutineItems(next);
+    sv("bp-routine-items",next);
+    if(user&&fbDb&&cloudOkRef.current){clearTimeout(window._riSaveTimeout);window._riSaveTimeout=setTimeout(()=>{cloudSaveAll(user.uid,{'bp-routine-items':next}).catch(()=>{});},1000);}
+  },[user]);
+
+  // ─── Save/unsave article or paper ───
+  const saveItem=useCallback((item)=>{
+    setSavedItems(prev=>{
+      const exists=prev.find(s=>s.link===item.link);
+      let next;
+      if(exists){next=prev.filter(s=>s.link!==item.link);}
+      else{next=[{...item,savedDate:new Date().toISOString(),id:uid()},...prev];}
+      sv("bp-saved",next);
+      if(user&&fbDb&&cloudOkRef.current){clearTimeout(window._savedSaveTimeout);window._savedSaveTimeout=setTimeout(()=>{cloudSaveAll(user.uid,{'bp-saved':next}).catch(()=>{});},1000);}
+      return next;
+    });
+  },[user]);
+  const isItemSaved=useCallback((link)=>savedItems.some(s=>s.link===link),[savedItems]);
+  const shareUrl=async(url,title)=>{
+    if(navigator.share){try{await navigator.share({title,url});return;}catch{}}
+    try{await navigator.clipboard.writeText(url);alert("URL이 복사되었습니다!");}catch{}
+  };
+
+  // ─── Dedup events by title+date+time ───
+  const dedup=(evList)=>{
+    const map=new Map();
+    evList.forEach(ev=>{
+      const key=`${ev.title?.trim()}|${ev.date}|${ev.time||""}`;
+      const existing=map.get(key);
+      if(!existing){map.set(key,ev);}
+      else{
+        // Keep the one with more info (attendees, location, etc.)
+        const score=(e)=>(e.attendees?1:0)+(e.location?1:0)+(e.memo?1:0)+(e.company?1:0)+(e.calendarName?1:0);
+        if(score(ev)>score(existing)) map.set(key,{...ev,attendees:ev.attendees||existing.attendees});
+        else if(existing.attendees||ev.attendees) map.set(key,{...existing,attendees:existing.attendees||ev.attendees});
+      }
+    });
+    return Array.from(map.values());
+  };
+
+  // ─── Event CRUD with Dooray sync ───
+  const saveEv=async(ev)=>{
+    const isDooray = ev.source==="dooray";
+    const isNew = !editEv;
+    
+    if(isDooray && ev.doorayId){
+      // Update existing Dooray event
+      await pushToDooray(ev, "update");
+    } else if(!isDooray && !isNew){
+      // Update local event - no Dooray action
+    }
+    
+    persist("bp-events", editEv ? events.map(e=>e.id===ev.id?ev:e) : [...events,{...ev,source:ev.source||"local"}], setEvents);
+    setShowEF(false);setEditEv(null);
+    
+    // If new local event, optionally push to Dooray
+    if(isNew && !isDooray){
+      // Could add a toggle "동기화" option here in future
+    }
+  };
+  const delEv=async(id)=>{
+    const ev=events.find(e=>e.id===id);
+    if(ev?.source==="dooray"&&ev.doorayId){
+      await pushToDooray(ev,"delete");
+    }
+    persist("bp-events",events.filter(e=>e.id!==id),setEvents);setShowEF(false);setEditEv(null);
+  };
+  const saveTd=td=>{persist("bp-todos",editTd?todos.map(t=>t.id===td.id?td:t):[...todos,td],setTodos);setShowTF(false);setEditTd(null);};
+  const delTd=id=>{persist("bp-todos",todos.filter(t=>t.id!==id),setTodos);setShowTF(false);setEditTd(null);};
+  const togTd=id=>{persist("bp-todos",todos.map(t=>t.id===id?{...t,completed:!t.completed,completedDate:!t.completed?TODAY:null}:t),setTodos);};
+  const saveMe=m=>{persist("bp-memos",editMe?memos.map(e=>e.id===m.id?m:e):[...memos,m],setMemos);setShowMF(false);setEditMe(null);};
+  const delMe=id=>{persist("bp-memos",memos.filter(m=>m.id!==id),setMemos);setShowMF(false);setEditMe(null);};
+  // ─── Memo archive (완료 메모 별도 보관) ───
+  const archiveMe=arg=>{const id=typeof arg==="string"?arg:arg.id;const m=typeof arg==="string"?memos.find(x=>x.id===id):arg;if(!m)return;
+    const arch={...m,archivedAt:new Date().toISOString()};
+    persist("bp-memo-archive",[arch,...memoArchive.filter(a=>a.id!==id)],setMemoArchive);
+    persist("bp-memos",memos.filter(x=>x.id!==id),setMemos);setShowMF(false);setEditMe(null);};
+  const unarchiveMe=id=>{const a=memoArchive.find(x=>x.id===id);if(!a)return;
+    const {archivedAt,...m}=a;
+    persist("bp-memos",[...memos.filter(x=>x.id!==id),m],setMemos);
+    persist("bp-memo-archive",memoArchive.filter(x=>x.id!==id),setMemoArchive);};
+  const delArchived=id=>{persist("bp-memo-archive",memoArchive.filter(x=>x.id!==id),setMemoArchive);};
+  const saveCo=c=>{persist("bp-contacts",editCo?contacts.map(e=>e.id===c.id?c:e):[...contacts,c],setContacts);setShowCF(false);setEditCo(null);};
+  const delCo=id=>{persist("bp-contacts",contacts.filter(c=>c.id!==id),setContacts);setShowCF(false);setEditCo(null);};
+  const[gImporting,setGImporting]=useState(false);const[gImportMsg,setGImportMsg]=useState("");
+  const importGoogleContacts=async()=>{
+    setGImporting(true);setGImportMsg("불러오는 중...");
+    try{
+      let token=sessionStorage.getItem('bp-gtoken');
+      if(!token&&fbAuth&&fbGoogle){
+        // Re-auth to get fresh token
+        const result=await fbAuth.signInWithPopup(fbGoogle);
+        token=result.credential?.accessToken;
+        if(token)sessionStorage.setItem('bp-gtoken',token);
+      }
+      if(!token){setGImportMsg("❌ 로그인이 필요합니다");setGImporting(false);return;}
+      const gContacts=await fetchGoogleContacts(token);
+      if(gContacts.length===0){setGImportMsg("Google 연락처가 비어있습니다");setGImporting(false);return;}
+      // Merge: skip duplicates by name+email
+      const existing=new Set(contacts.map(c=>(c.name+c.email).toLowerCase()));
+      const newOnes=gContacts.filter(g=>!existing.has((g.name+g.email).toLowerCase()));
+      const merged=[...contacts,...newOnes];
+      persist("bp-contacts",merged,setContacts);
+      setGImportMsg(`✅ ${newOnes.length}명 추가 (총 ${merged.length}명, 중복 ${gContacts.length-newOnes.length}명 제외)`);
+    }catch(e){
+      console.error("Google contacts import:",e);
+      if(e.message?.includes("401")||e.message?.includes("403")){
+        sessionStorage.removeItem('bp-gtoken');
+        setGImportMsg("❌ 권한 만료 - 다시 시도해주세요");
+      }else{setGImportMsg("❌ 가져오기 실패: "+e.message);}
+    }
+    setGImporting(false);
+  };
+  const restoreData=d=>{
+    // Handle both old format (events,todos) and new format (bp-events,bp-todos)
+    const ev=d['bp-events']||d.events||[];
+    const td=d['bp-todos']||d.todos||[];
+    const mm=d['bp-memos']||d.memos||[];
+    const cc=d['bp-contacts']||d.contacts||[];
+    const rt=d['bp-routines']||d.routines||{};
+    const sv2=d['bp-saved']||d.savedItems||[];
+    const ri=withWeekly(d['bp-routine-items']||d.routineItems||DEFAULT_ROUTINES);
+    const ma=d['bp-memo-archive']||[];
+    sv("bp-events",ev);sv("bp-todos",td);sv("bp-memos",mm);sv("bp-contacts",cc);sv("bp-routines",rt);sv("bp-saved",sv2);sv("bp-routine-items",ri);sv("bp-memo-archive",ma);
+    setEvents(ev);setTodos(td);setMemos(mm);setContacts(cc);setRoutines(rt);setSavedItems(sv2);setRoutineItems(ri);setMemoArchive(ma);
+    // Sync to cloud
+    if(user&&fbDb&&cloudOkRef.current){
+      cloudSaveAll(user.uid,{'bp-events':ev.filter(e=>e.source!=='dooray'),'bp-todos':td,'bp-memos':mm,'bp-contacts':cc,'bp-routines':rt,'bp-saved':sv2,'bp-routine-items':ri,'bp-memo-archive':ma}).catch(()=>{});
+    }
+    setShowSettings(false);
+  };
+
+  // ─── Filters ───
+  const tabSearch=globalSearch?"":search;
+  // Helper: is event's end time in the past?
+  const isEvPast=(ev)=>{
+    const now=new Date();
+    if(!ev.date)return false;
+    const evDate=pD(ev.endDate||ev.date);
+    if(ev.endTime){const[h,m]=(ev.endTime).split(":").map(Number);evDate.setHours(h,m,0,0);}
+    else if(ev.time){const[h,m]=(ev.time).split(":").map(Number);evDate.setHours(h,m+30,0,0);}
+    else{evDate.setHours(23,59,59);}
+    return now>evDate;
+  };
+  const dayEvs=dedup(events.filter(e=>{
+    if(e.date===selDate) return true;
+    if(e.endDate && e.date<=selDate && e.endDate>=selDate) return true;
+    return false;
+  })).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
+  // Split into visible (unchecked) and checked
+  const dayEvsVisible=dayEvs.filter(e=>!checkedEvs.includes(e.id));
+  const dayEvsChecked=dayEvs.filter(e=>checkedEvs.includes(e.id));
+  const fTodos=todos.filter(t=>todoFilt==="active"?!t.completed:todoFilt==="completed"?t.completed:true)
+    .filter(t=>!tabSearch||t.title.toLowerCase().includes(tabSearch.toLowerCase()))
+    .sort((a,b)=>{
+      if(todoSort==="priority"){const o={high:0,medium:1,low:2};return(o[a.priority]||1)-(o[b.priority]||1);}
+      if(todoSort==="due"){if(!a.dueDate&&!b.dueDate)return 0;if(!a.dueDate)return 1;if(!b.dueDate)return -1;return a.dueDate.localeCompare(b.dueDate);}
+      return 0;
+    });
+  const memoText=m=>[m.title,m.content,m.decisions,m.actionItems,m.agenda,m.attendees,m.tags,m.nextMeeting].filter(Boolean).join(" ").toLowerCase();
+  const fArch=memoArchive.filter(m=>memoFilt!=="all"?m.type===memoFilt:true).filter(m=>{const q=(archQ||tabSearch).trim().toLowerCase();if(!q)return true;const t=memoText(m);return q.split(/\s+/).every(w=>t.includes(w));}).sort((a,b)=>(b.archivedAt||"").localeCompare(a.archivedAt||""));
+  const fMemos=memos.filter(m=>memoFilt!=="all"?m.type===memoFilt:true).filter(m=>!tabSearch||m.title.toLowerCase().includes(tabSearch.toLowerCase())||m.content?.toLowerCase().includes(tabSearch.toLowerCase())).sort((a,b)=>b.date.localeCompare(a.date));
+  const upcoming=dedup(events.filter(e=>e.date>TODAY)).sort((a,b)=>a.date.localeCompare(b.date)||(a.time||"").localeCompare(b.time||"")).slice(0,8);
+  const selDO=pD(selDate);const dateLbl=`${selDO.getMonth()+1}월 ${selDO.getDate()}일 (${DAYS_KR[selDO.getDay()]})`;
+  const activeTd=todos.filter(t=>!t.completed).length;
+
+  const gResults=search&&globalSearch?{
+    events:events.filter(e=>e.title?.toLowerCase().includes(search.toLowerCase())||e.location?.toLowerCase().includes(search.toLowerCase())),
+    todos:todos.filter(t=>t.title.toLowerCase().includes(search.toLowerCase())),
+    memos:memos.filter(m=>m.title.toLowerCase().includes(search.toLowerCase())||m.content?.toLowerCase().includes(search.toLowerCase())),
+    archived:memoArchive.filter(m=>memoText(m).includes(search.toLowerCase())),
+    contacts:contacts.filter(c=>c.name.toLowerCase().includes(search.toLowerCase())||c.company?.toLowerCase().includes(search.toLowerCase())),
+  }:null;
+
+  const todayRoutineItems=routineItems.filter(r=>routineActive(r,TODAY));
+  const routineDone=todayRoutineItems.filter(r=>(routines[TODAY]||{})[r.id]).length;
+  const tabItems=[{k:"routine",i:"🔥",l:"루틴",badge:routineDone<todayRoutineItems.length?todayRoutineItems.length-routineDone:0},{k:"schedule",i:"📅",l:"일정"},{k:"todo",i:"✅",l:"할일",badge:activeTd},{k:"memo",i:"📝",l:"메모"},{k:"contacts",i:"👥",l:"연락처"},{k:"news",i:"📰",l:"기사"},{k:"pubmed",i:"🔬",l:"PubMed"},{k:"scrap",i:"📌",l:"스크랩",badge:savedItems.length||0}];
+
+  if(authLoading)return(<div style={{display:"flex",justifyContent:"center",alignItems:"center",height:"100vh",background:"#F8FAFC"}}>
+    <div style={{textAlign:"center"}}><div style={{fontSize:40,marginBottom:10}}>📅</div><div style={{color:"#64748B",fontSize:13}}>인증 확인 중...</div></div></div>);
+
+  // Show login screen if Firebase is configured but not logged in
+  if(fbReady&&!user&&!skipLogin)return(<LoginScreen onLogin={login} onSkip={()=>{setSkipLogin(true);localStorage.setItem("bp-skip-login","1");}}/>);
+
+  if(loading)return(<div style={{display:"flex",justifyContent:"center",alignItems:"center",height:"100vh",background:"#F8FAFC"}}>
+    <div style={{textAlign:"center"}}><div style={{fontSize:40,marginBottom:10}}>📅</div><div style={{color:"#64748B",fontSize:13}}>{cloudSt==="syncing"?"클라우드 동기화 중...":"로딩 중..."}</div></div></div>);
+
+  return(
+    <div style={{minHeight:"100vh",background:"#F1F5F9",fontFamily:"'Noto Sans KR','Pretendard',-apple-system,sans-serif",paddingBottom:76}}>
+      <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+
+      {/* Header */}
+      <div style={{background:"linear-gradient(135deg,#0F172A,#1E293B 60%,#1E3A5F)",color:"#fff",padding:"12px 16px",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 12px rgba(0,0,0,0.2)"}}>
+        <div className="bp-main-content" style={{maxWidth:600,margin:"0 auto",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <div style={{width:30,height:30,borderRadius:8,background:"linear-gradient(135deg,#3B82F6,#8B5CF6)",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:13,fontWeight:900,color:"#fff",letterSpacing:"-1px",fontFamily:"Arial Black,sans-serif"}}>KH</span></div>
+            <div><div style={{fontWeight:800,fontSize:15,letterSpacing:"-0.5px"}}>김호 정신차려!</div>
+              <div style={{fontSize:8,color:"#94A3B8",fontWeight:600,letterSpacing:1.2}}>SMART BUSINESS PLANNER</div></div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:5}}>
+            {/* Dooray Link */}
+            <button onClick={()=>syncDooray(events)} style={{border:"none",background:"rgba(62,111,224,0.3)",borderRadius:6,padding:"5px 8px",cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>
+              <span style={{fontSize:11}}>🔗</span>
+              <span style={{fontSize:10,color:"#93C5FD",fontWeight:600}}>두레이</span>
+            </button>
+            {/* Cloud Status */}
+            {user&&<div style={{display:"flex",alignItems:"center",gap:3,fontSize:9,color:cloudSt==="synced"?"#4ADE80":cloudSt==="syncing"?"#FBBF24":cloudSt==="error"?"#F87171":"#94A3B8",fontWeight:600}}>
+              <div style={{width:5,height:5,borderRadius:"50%",background:cloudSt==="synced"?"#4ADE80":cloudSt==="syncing"?"#FBBF24":cloudSt==="error"?"#F87171":"#64748B",animation:cloudSt==="syncing"?"pulse 1s infinite":"none"}}/>
+              {cloudSt==="synced"?"☁️":cloudSt==="syncing"?"⏳":"⚠️"}
+            </div>}
+            {/* Sync Status */}
+            <div style={{display:"flex",alignItems:"center",gap:3,fontSize:9,color:syncSt==="synced"?"#4ADE80":syncSt==="syncing"?"#FBBF24":syncSt==="error"?"#F87171":"#94A3B8",fontWeight:600}}>
+              <div style={{width:5,height:5,borderRadius:"50%",background:syncSt==="synced"?"#4ADE80":syncSt==="syncing"?"#FBBF24":syncSt==="error"?"#F87171":"#64748B",animation:syncSt==="syncing"?"pulse 1s infinite":"none"}}/>
+              {syncSt==="synced"?"동기화":syncSt==="syncing"?"동기화중":syncSt==="error"?"오류":"대기"}
+            </div>
+            {/* User Avatar or Login */}
+            {user?
+              <button onClick={logout} style={{border:"none",background:"none",cursor:"pointer",padding:0,display:"flex",alignItems:"center",gap:4}}>
+                <img src={user.photoURL||""} style={{width:26,height:26,borderRadius:"50%",border:"2px solid rgba(255,255,255,0.3)"}} alt="" onError={e=>{e.target.style.display="none";}}/>
+              </button>
+            :fbReady?
+              <button onClick={login} disabled={loginPending} style={{border:"none",background:loginPending?"rgba(251,191,36,0.3)":"rgba(255,255,255,0.15)",borderRadius:6,padding:"4px 8px",cursor:loginPending?"wait":"pointer",fontSize:10,color:loginPending?"#FBBF24":"#93C5FD",fontWeight:600}}>
+                {loginPending?"로그인중...":"로그인"}</button>
+            :null}
+            <button onClick={()=>setShowSettings(true)} style={{border:"none",background:"rgba(255,255,255,0.1)",borderRadius:6,padding:"5px 7px",cursor:"pointer",fontSize:13,color:"#94A3B8"}}>⚙️</button>
+          </div>
+        </div>
+      </div>
+
+      <div className="bp-main-content" style={{maxWidth:600,margin:"0 auto",padding:"0 12px"}}>
+
+        {/* Search */}
+        <div style={{margin:"10px 0 0",position:"relative"}}>
+          <input value={search} onChange={e=>{setSearch(e.target.value);if(e.target.value)setGlobalSearch(true);else setGlobalSearch(false);}}
+            placeholder="🔍 전체 검색" style={{...inpS,background:"#fff",borderRadius:10,paddingRight:40,boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}/>
+          {search&&<button onClick={()=>{setSearch("");setGlobalSearch(false);}} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",border:"none",background:"none",color:"#94A3B8",cursor:"pointer",fontSize:15}}>✕</button>}
+        </div>
+
+        {/* Global Search Results */}
+        {gResults&&(gResults.events.length+gResults.todos.length+gResults.memos.length+gResults.archived.length+gResults.contacts.length)>0&&(
+          <div style={{background:"#fff",borderRadius:10,marginTop:6,padding:10,boxShadow:"0 2px 8px rgba(0,0,0,0.06)",maxHeight:260,overflow:"auto"}}>
+            <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",marginBottom:6}}>검색 결과 ({gResults.events.length+gResults.todos.length+gResults.memos.length+gResults.archived.length+gResults.contacts.length}건)</div>
+            {gResults.events.map(e=><div key={e.id} onClick={()=>{setEditEv(e);setShowEF(true);setGlobalSearch(false);setSearch("");}} style={searchResultS}>
+              <span>📅</span><span style={{flex:1,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.title}</span><span style={{fontSize:10,color:"#94A3B8",flexShrink:0}}>{e.date}</span></div>)}
+            {gResults.todos.map(t=><div key={t.id} onClick={()=>{setEditTd(t);setShowTF(true);setGlobalSearch(false);setSearch("");}} style={searchResultS}>
+              <span>✅</span><span style={{flex:1,fontWeight:600}}>{t.title}</span></div>)}
+            {gResults.memos.map(m=><div key={m.id} onClick={()=>{setEditMe(m);setShowMF(true);setGlobalSearch(false);setSearch("");}} style={searchResultS}>
+              <span>{MEMO_T[m.type]?.icon||"📝"}</span><span style={{flex:1,fontWeight:600}}>{m.title}</span></div>)}
+            {gResults.archived.map(m=><div key={m.id} onClick={()=>{setTab("memo");setMemoView("archive");setArchQ(m.title);setGlobalSearch(false);setSearch("");}} style={{...searchResultS,opacity:0.7}}>
+              <span>📦</span><span style={{flex:1,fontWeight:600}}>{m.title}</span><span style={{fontSize:9,color:"#15803D",fontWeight:700}}>완료</span></div>)}
+            {gResults.contacts.map(c=><div key={c.id} onClick={()=>{setEditCo(c);setShowCF(true);setGlobalSearch(false);setSearch("");}} style={searchResultS}>
+              <span>👤</span><span style={{flex:1,fontWeight:600}}>{c.name}</span><span style={{fontSize:10,color:"#94A3B8"}}>{c.company}</span></div>)}
+          </div>
+        )}
+
+        {/* Tab Bar */}
+        <div style={{display:"flex",gap:2,background:"#E2E8F0",borderRadius:12,padding:2,margin:"8px 0",overflowX:"auto",WebkitOverflowScrolling:"touch",scrollbarWidth:"none",msOverflowStyle:"none"}}>
+          {tabItems.map(t=><button key={t.k} onClick={()=>{setTab(t.k);setSearch("");setGlobalSearch(false);}}
+            style={{minWidth:0,flex:"0 0 auto",padding:"7px 10px",borderRadius:10,border:"none",background:tab===t.k?"#fff":"transparent",color:tab===t.k?"#1E293B":"#64748B",
+              fontWeight:tab===t.k?700:500,fontSize:11,cursor:"pointer",transition:"all 0.2s",boxShadow:tab===t.k?"0 1px 4px rgba(0,0,0,0.08)":"none",display:"flex",alignItems:"center",justifyContent:"center",gap:2,whiteSpace:"nowrap"}}>
+            <span style={{fontSize:12}}>{t.i}</span> {t.l}
+            {t.badge>0&&<span style={{background:"#EF4444",color:"#fff",fontSize:8,fontWeight:700,borderRadius:8,padding:"0px 4px",minWidth:12,textAlign:"center"}}>{t.badge}</span>}
+          </button>)}
+        </div>
+
+        {/* ═══ SCHEDULE ═══ */}
+        {/* ═══ ROUTINE ═══ */}
+        {tab==="routine"&&<RoutineTab routines={routines} onToggle={toggleRoutine} today={TODAY} items={routineItems} onUpdateItems={updateRoutineItems}/>}
+
+        {/* ═══ SCHEDULE ═══ */}
+        {tab==="schedule"&&<>
+          <Dashboard events={events} todos={todos}/>
+          <CountdownAlarm events={events}/>
+          <Calendar currentDate={curDate} selectedDate={selDate} onSelectDate={setSelDate} events={events}
+            onMonthChange={d=>{const nd=new Date(curDate);nd.setMonth(nd.getMonth()+d);setCurDate(nd);}}
+            onToday={()=>{setCurDate(new Date());setSelDate(TODAY);}}/>
+          
+          {/* Day Events */}
+          <div style={{marginTop:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <h3 style={{margin:0,fontSize:15,fontWeight:700,color:"#1E293B",wordBreak:"keep-all"}}>{dateLbl}{dayEvs.length>0&&<span style={{fontSize:11,color:"#94A3B8",fontWeight:400}}> ({dayEvsVisible.length}건{dayEvsChecked.length>0?` · ✓${dayEvsChecked.length}`:""}{dayEvs.filter(e=>isEvPast(e)&&!checkedEvs.includes(e.id)).length>0?` · 완료${dayEvs.filter(e=>isEvPast(e)&&!checkedEvs.includes(e.id)).length}`:""})</span>}</h3>
+              {dayEvsChecked.length>0&&<button onClick={()=>setShowChecked(!showChecked)} style={{fontSize:10,padding:"3px 8px",borderRadius:6,border:"1px solid #E2E8F0",background:showChecked?"#1E293B":"#F8FAFC",color:showChecked?"#fff":"#64748B",fontWeight:600,cursor:"pointer"}}>
+                {showChecked?"✓ 숨기기":`✓ ${dayEvsChecked.length}건 보기`}
+              </button>}
+            </div>
+            {dayEvsVisible.length===0&&dayEvsChecked.length===0?<div style={{textAlign:"center",padding:"24px 0",color:"#94A3B8"}}>
+              <div style={{fontSize:24,marginBottom:4}}>🌤</div>
+              <div style={{fontSize:13}}>일정이 없습니다</div>
+              {(()=>{const next=events.filter(e=>e.date>selDate).sort((a,b)=>a.date.localeCompare(b.date))[0];
+                return next?<div style={{fontSize:11,marginTop:5,color:"#3B82F6",cursor:"pointer"}} onClick={()=>setSelDate(next.date)}>다음: {next.date} — {next.title} →</div>:null;})()}
+            </div>
+            :<>
+              {dayEvsVisible.length===0&&<div style={{textAlign:"center",padding:"12px 0",color:"#94A3B8",fontSize:12}}>모든 일정이 체크됨</div>}
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {dayEvsVisible.map(ev=><EventCard key={ev.id} ev={ev} isPast={isEvPast(ev)} isChecked={false} onToggleCheck={toggleCheck} onEdit={e=>{setEditEv(e);setShowEF(true);}} onShare={setShareItem}/>)}
+              </div>
+              {/* Checked events (hidden by default) */}
+              {showChecked&&dayEvsChecked.length>0&&<>
+                <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",margin:"10px 0 4px",display:"flex",alignItems:"center",gap:6}}>
+                  <div style={{flex:1,height:1,background:"#E2E8F0"}}/>
+                  <span>✓ 체크된 일정 ({dayEvsChecked.length})</span>
+                  <div style={{flex:1,height:1,background:"#E2E8F0"}}/>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                  {dayEvsChecked.map(ev=><EventCard key={ev.id} ev={ev} isPast={isEvPast(ev)} isChecked={true} onToggleCheck={toggleCheck} onEdit={e=>{setEditEv(e);setShowEF(true);}} onShare={setShareItem}/>)}
+                </div>
+              </>}
+            </>}
+          </div>
+
+          {/* Upcoming (tomorrow+) */}
+          {upcoming.length>0&&<div style={{marginTop:16}}>
+            <h3 style={{margin:"0 0 6px",fontSize:14,fontWeight:700,color:"#1E293B"}}>📌 다가오는 일정 (내일~)</h3>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              {upcoming.map(ev=>{const d=pD(ev.date);const isDooray=ev.source==="dooray";const isMulti=ev.endDate&&ev.endDate!==ev.date;return(
+                <div key={ev.id+ev.date} onClick={()=>{setSelDate(ev.date);setEditEv(ev);setShowEF(true);}} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:"#fff",borderRadius:10,cursor:"pointer",boxShadow:"0 1px 2px rgba(0,0,0,0.03)"}}>
+                  <div style={{width:34,textAlign:"center",flexShrink:0}}>
+                    <div style={{fontSize:8,fontWeight:700,color:"#94A3B8"}}>{MONTHS_KR[d.getMonth()]}</div>
+                    <div style={{fontSize:15,fontWeight:800,color:"#1E293B"}}>{d.getDate()}</div>
+                    <div style={{fontSize:8,color:d.getDay()===0?"#EF4444":d.getDay()===6?"#3B82F6":"#94A3B8"}}>{DAYS_KR[d.getDay()]}</div>
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:12,fontWeight:600,color:"#1E293B",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",wordBreak:"keep-all"}}>{CAT[ev.category]?.i} {ev.title}</div>
+                    <div style={{fontSize:10,color:"#94A3B8",display:"flex",gap:4,flexWrap:"wrap",marginTop:1}}>
+                      {ev.time&&<span>{ev.time}</span>}
+                      {ev.location&&<span>· {ev.location}</span>}
+                      {isMulti&&<span style={{color:"#3B82F6"}}>~{ev.endDate}</span>}
+                    </div>
+                    {ev.attendees&&<div style={{fontSize:10,color:"#2563EB",marginTop:1}}>👥 {ev.attendees}</div>}
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2,flexShrink:0}}>
+                    <div style={{width:6,height:6,borderRadius:"50%",background:isDooray?"#3E6FE0":PRI[ev.priority]?.dot||"#94A3B8"}}/>
+                    {isDooray&&<span style={{fontSize:8,color:"#3E6FE0",fontWeight:600}}>D</span>}
+                  </div>
+                </div>);})}</div></div>}
+        </>}
+
+        {/* ═══ TODO ═══ */}
+        {tab==="todo"&&<>
+          <div style={{display:"flex",gap:4,marginBottom:8,alignItems:"center",flexWrap:"wrap"}}>
+            {[["all","전체",todos.length],["active","진행중",todos.filter(t=>!t.completed).length],["completed","완료",todos.filter(t=>t.completed).length]].map(([k,l,c])=>
+              <button key={k} onClick={()=>setTodoFilt(k)} style={{padding:"5px 10px",borderRadius:16,border:todoFilt===k?"2px solid #1E293B":"2px solid #E2E8F0",background:todoFilt===k?"#1E293B":"#fff",color:todoFilt===k?"#fff":"#64748B",fontWeight:600,fontSize:11,cursor:"pointer"}}>{l}({c})</button>)}
+            <div style={{flex:1}}/>
+            <select value={todoSort} onChange={e=>setTodoSort(e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1.5px solid #E2E8F0",fontSize:10,color:"#64748B",background:"#fff"}}>
+              <option value="priority">중요도</option><option value="due">마감일</option>
+            </select>
+          </div>
+          {fTodos.length===0?<div style={{textAlign:"center",padding:"30px 0",color:"#94A3B8"}}><div style={{fontSize:28}}>✨</div><div style={{fontSize:13,marginTop:4}}>{todoFilt==="completed"?"완료 항목 없음":"할 일 없음"}</div></div>
+          :<div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {fTodos.map(td=>{const p=PRI[td.priority];const days=dBtw(td.createdDate,TODAY);const work=td.completed&&td.completedDate?dBtw(td.createdDate,td.completedDate):null;
+              const overdue=!td.completed&&td.dueDate&&td.dueDate<TODAY;const dueSoon=!td.completed&&td.dueDate&&!overdue&&dBtw(TODAY,td.dueDate)<=2;
+              return(<div key={td.id} style={{background:"#fff",borderRadius:10,padding:"10px 12px",borderLeft:`4px solid ${td.completed?"#10B981":overdue?"#EF4444":p.dot}`,boxShadow:"0 1px 3px rgba(0,0,0,0.04)",opacity:td.completed?0.7:1}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <button onClick={()=>togTd(td.id)} style={{width:20,height:20,borderRadius:5,border:`2px solid ${td.completed?"#10B981":"#CBD5E1"}`,background:td.completed?"#10B981":"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:11,flexShrink:0}}>{td.completed&&"✓"}</button>
+                  <div style={{flex:1,cursor:"pointer",minWidth:0}} onClick={()=>{setEditTd(td);setShowTF(true);}}>
+                    <div style={{fontSize:13,fontWeight:600,color:td.completed?"#94A3B8":"#1E293B",textDecoration:td.completed?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",wordBreak:"keep-all"}}>{td.title}</div>
+                    <div style={{display:"flex",gap:4,marginTop:2,flexWrap:"wrap",alignItems:"center"}}>
+                      <span style={{fontSize:9,background:p.bg,color:p.text,borderRadius:3,padding:"0px 4px",fontWeight:600}}>{p.label}</span>
+                      <span style={{fontSize:9,color:"#94A3B8"}}>{td.category}</span>
+                      {!td.completed&&<span style={{fontSize:9,color:days>7?"#EF4444":"#64748B"}}>⏱{days}일</span>}
+                      {work!==null&&<span style={{fontSize:9,color:"#10B981"}}>✅{work}일</span>}
+                      {td.dueDate&&!td.completed&&<span style={{fontSize:9,color:overdue?"#EF4444":dueSoon?"#F97316":"#64748B",fontWeight:overdue||dueSoon?700:400}}>
+                        {overdue?`🚨${Math.abs(dBtw(td.dueDate,TODAY))}일초과`:`D-${dBtw(TODAY,td.dueDate)}`}</span>}
+                    </div>
+                  </div>
+                  <button onClick={e=>{e.stopPropagation();setShareItem({title:td.title,content:`[할일] ${td.title}\n우선순위: ${p.label}\n카테고리: ${td.category}${td.dueDate?`\n마감: ${td.dueDate}`:""}${td.notes?`\n메모: ${td.notes}`:""}`});}} style={{border:"none",background:"#F1F5F9",borderRadius:6,padding:"4px 6px",cursor:"pointer",fontSize:11,flexShrink:0,color:"#64748B"}}>📤</button>
+                </div>
+              </div>);})}</div>}
+          {todos.length>0&&<div style={{marginTop:14,background:"#fff",borderRadius:12,padding:12,boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#1E293B"}}>📊 통계</div>
+              {todos.filter(t=>t.completed).length>0&&<button onClick={()=>{if(confirm(`완료 ${todos.filter(t=>t.completed).length}개 삭제?`))persist("bp-todos",todos.filter(t=>!t.completed),setTodos);}} style={{fontSize:10,padding:"3px 8px",borderRadius:5,border:"1px solid #FECACA",background:"#FEF2F2",color:"#DC2626",fontWeight:600,cursor:"pointer"}}>🗑 완료삭제</button>}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
+              {[{l:"전체",v:todos.length,c:"#3B82F6"},{l:"완료율",v:`${todos.length>0?Math.round(todos.filter(t=>t.completed).length/todos.length*100):0}%`,c:"#10B981"},
+                {l:"평균소요",v:(()=>{const cd=todos.filter(t=>t.completed&&t.completedDate);return cd.length?`${Math.round(cd.reduce((s,t)=>s+dBtw(t.createdDate,t.completedDate),0)/cd.length)}일`:"-";})(),c:"#F59E0B"},
+                {l:"초과",v:todos.filter(t=>!t.completed&&t.dueDate&&t.dueDate<TODAY).length,c:"#EF4444"},
+              ].map(s=><div key={s.l} style={{textAlign:"center"}}><div style={{fontSize:18,fontWeight:800,color:s.c}}>{s.v}</div><div style={{fontSize:9,color:"#94A3B8"}}>{s.l}</div></div>)}
+            </div>
+          </div>}
+        </>}
+
+        {/* ═══ MEMO ═══ */}
+        {tab==="memo"&&<>
+          <div style={{display:"flex",gap:4,marginBottom:8}}>
+            <button onClick={()=>setMemoView("active")} style={{flex:1,padding:"7px 0",borderRadius:8,border:memoView==="active"?"2px solid #1E293B":"2px solid #E2E8F0",background:memoView==="active"?"#1E293B":"#fff",color:memoView==="active"?"#fff":"#64748B",fontWeight:700,fontSize:11,cursor:"pointer"}}>📝 진행중 {memos.length}</button>
+            <button onClick={()=>setMemoView("archive")} style={{flex:1,padding:"7px 0",borderRadius:8,border:memoView==="archive"?"2px solid #15803D":"2px solid #E2E8F0",background:memoView==="archive"?"#15803D":"#fff",color:memoView==="archive"?"#fff":"#64748B",fontWeight:700,fontSize:11,cursor:"pointer"}}>📦 완료 보관함 {memoArchive.length}</button>
+          </div>
+          <div style={{display:"flex",gap:4,marginBottom:10,flexWrap:"wrap"}}>
+            <button onClick={()=>setMemoFilt("all")} style={{padding:"4px 8px",borderRadius:16,border:memoFilt==="all"?"2px solid #1E293B":"2px solid #E2E8F0",background:memoFilt==="all"?"#1E293B":"#fff",color:memoFilt==="all"?"#fff":"#64748B",fontWeight:600,fontSize:10,cursor:"pointer"}}>전체</button>
+            {Object.entries(MEMO_T).map(([k,v])=><button key={k} onClick={()=>setMemoFilt(k)} style={{padding:"4px 8px",borderRadius:16,border:memoFilt===k?`2px solid ${v.color}`:"2px solid #E2E8F0",background:memoFilt===k?v.color+"18":"#fff",color:memoFilt===k?v.color:"#64748B",fontWeight:600,fontSize:10,cursor:"pointer"}}>{v.icon} {v.label}</button>)}
+          </div>
+          {memoView==="archive"&&<>
+            <input value={archQ} onChange={e=>setArchQ(e.target.value)} placeholder="🔍 보관함 검색 (제목·내용·결정사항·액션·참석자·태그)" style={{width:"100%",padding:"9px 12px",borderRadius:10,border:"2px solid #BBF7D0",fontSize:13,marginBottom:8,boxSizing:"border-box",background:"#F0FDF4"}}/>
+            {fArch.length===0?<div style={{textAlign:"center",padding:"30px 0",color:"#94A3B8"}}><div style={{fontSize:28}}>📦</div><div style={{fontSize:13,marginTop:4}}>{archQ?"검색 결과 없음":"완료된 메모가 없습니다"}</div><div style={{fontSize:11,marginTop:4,color:"#CBD5E1"}}>메모를 열고 ✅ 완료를 누르면 이곳에 보관됩니다</div></div>
+            :<div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {fArch.map(m=>{const mt=MEMO_T[m.type]||MEMO_T.free;const ad=(m.archivedAt||"").substring(0,10);return(
+                <div key={m.id} style={{background:"#F8FAFC",borderRadius:10,padding:"10px 12px",borderLeft:`4px solid ${mt.color}`,boxShadow:"0 1px 3px rgba(0,0,0,0.04)",opacity:0.92}}>
+                  <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:2}}>
+                    <span style={{fontSize:12}}>{mt.icon}</span>
+                    <span style={{fontSize:8,background:mt.color+"20",color:mt.color,borderRadius:3,padding:"0px 4px",fontWeight:700}}>{mt.label}</span>
+                    <span style={{fontWeight:600,fontSize:13,color:"#334155",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.title}</span>
+                    <span style={{fontSize:10,color:"#94A3B8",flexShrink:0}}>{m.date}</span>
+                  </div>
+                  {m.content&&<div style={{fontSize:11,color:"#64748B",marginLeft:18,whiteSpace:"pre-wrap",maxHeight:60,overflow:"hidden"}}>{m.content}</div>}
+                  {m.decisions&&<div style={{fontSize:10,color:"#059669",marginLeft:18,marginTop:1}}>✅ {m.decisions}</div>}
+                  {m.actionItems&&<div style={{fontSize:10,color:"#7C3AED",marginLeft:18,marginTop:1}}>🎯 {m.actionItems}</div>}
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginTop:6,marginLeft:18}}>
+                    <span style={{fontSize:9,color:"#94A3B8",flex:1}}>완료 {ad}</span>
+                    <button onClick={()=>setShareItem({title:m.title,date:m.date,content:`[${mt.label}] ${m.title}\n📅 ${m.date}${m.content?`\n${m.content}`:""}${m.decisions?`\n✅ 결정사항: ${m.decisions}`:""}${m.actionItems?`\n📋 액션: ${m.actionItems}`:""}`})} style={{border:"none",background:"#F1F5F9",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:10,color:"#64748B"}}>📤</button>
+                    <button onClick={()=>unarchiveMe(m.id)} style={{border:"none",background:"#EFF6FF",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:10,fontWeight:700,color:"#2563EB"}}>↩ 복원</button>
+                    <button onClick={()=>{if(confirm(`"${m.title}" 영구 삭제?`))delArchived(m.id);}} style={{border:"none",background:"#FEE2E2",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:10,fontWeight:700,color:"#DC2626"}}>삭제</button>
+                  </div>
+                </div>);})}</div>}
+          </>}
+          {memoView==="active"&&(fMemos.length===0?<div style={{textAlign:"center",padding:"30px 0",color:"#94A3B8"}}><div style={{fontSize:28}}>📝</div><div style={{fontSize:13,marginTop:4}}>메모 없음</div></div>
+          :<div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {fMemos.map(m=>{const mt=MEMO_T[m.type]||MEMO_T.free;return(
+              <div key={m.id} onClick={()=>{setEditMe(m);setShowMF(true);}} style={{background:"#fff",borderRadius:10,padding:"10px 12px",borderLeft:`4px solid ${mt.color}`,boxShadow:"0 1px 3px rgba(0,0,0,0.04)",cursor:"pointer"}}>
+                <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:2}}>
+                  <span style={{fontSize:12}}>{mt.icon}</span>
+                  <span style={{fontSize:8,background:mt.color+"20",color:mt.color,borderRadius:3,padding:"0px 4px",fontWeight:700}}>{mt.label}</span>
+                  <span style={{fontWeight:600,fontSize:13,color:"#1E293B",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",wordBreak:"keep-all"}}>{m.title}</span>
+                  <button onClick={e=>{e.stopPropagation();archiveMe(m.id);}} title="완료 → 보관함" style={{border:"none",background:"#DCFCE7",borderRadius:6,padding:"4px 6px",cursor:"pointer",fontSize:11,flexShrink:0,color:"#15803D",fontWeight:700}}>✓</button>
+                  <button onClick={e=>{e.stopPropagation();setShareItem({title:m.title,date:m.date,content:`[${mt.label}] ${m.title}\n📅 ${m.date}${m.content?`\n${m.content}`:""}${m.decisions?`\n✅ 결정사항: ${m.decisions}`:""}${m.actionItems?`\n📋 액션: ${m.actionItems}`:""}`});}} style={{border:"none",background:"#F1F5F9",borderRadius:6,padding:"4px 6px",cursor:"pointer",fontSize:11,flexShrink:0,color:"#64748B"}}>📤</button>
+                  <span style={{fontSize:10,color:"#94A3B8",flexShrink:0}}>{m.date}</span>
+                </div>
+                {m.content&&<div style={{fontSize:11,color:"#64748B",marginLeft:18,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{m.content}</div>}
+                {m.decisions&&<div style={{fontSize:10,color:"#059669",marginLeft:18,marginTop:1}}>✅ {m.decisions.substring(0,40)}{m.decisions.length>40?"...":""}</div>}
+              </div>);})}</div>)}
+        </>}
+
+        {/* ═══ CONTACTS ═══ */}
+        {tab==="contacts"&&<>
+          {/* Google Contacts Import */}
+          {user&&<div style={{marginBottom:10}}>
+            <button onClick={importGoogleContacts} disabled={gImporting} style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"2px solid #E2E8F0",background:gImporting?"#F1F5F9":"#fff",color:"#1E293B",fontSize:12,fontWeight:600,cursor:gImporting?"wait":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+              <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+              {gImporting?"불러오는 중...":"📥 Google 연락처 가져오기"}
+            </button>
+            {gImportMsg&&<div style={{fontSize:11,color:gImportMsg.startsWith("✅")?"#059669":gImportMsg.startsWith("❌")?"#DC2626":"#64748B",marginTop:4,textAlign:"center",fontWeight:600}}>{gImportMsg}</div>}
+          </div>}
+          {contacts.filter(c=>!tabSearch||c.name.toLowerCase().includes(tabSearch.toLowerCase())||c.company?.toLowerCase().includes(tabSearch.toLowerCase())).length===0
+            ?<div style={{textAlign:"center",padding:"30px 0",color:"#94A3B8"}}><div style={{fontSize:28}}>👥</div><div style={{fontSize:13,marginTop:4}}>연락처 없음</div></div>
+            :<>
+            <div style={{fontSize:11,color:"#94A3B8",fontWeight:600,marginBottom:6}}>총 {contacts.filter(c=>!tabSearch||c.name.toLowerCase().includes(tabSearch.toLowerCase())||c.company?.toLowerCase().includes(tabSearch.toLowerCase())).length}명</div>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {contacts.filter(c=>!tabSearch||c.name.toLowerCase().includes(tabSearch.toLowerCase())||c.company?.toLowerCase().includes(tabSearch.toLowerCase())).sort((a,b)=>a.name.localeCompare(b.name)).map(c=>
+                <div key={c.id} onClick={()=>{setEditCo(c);setShowCF(true);}} style={{background:"#fff",borderRadius:10,padding:"10px 12px",boxShadow:"0 1px 3px rgba(0,0,0,0.04)",cursor:"pointer",display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{width:34,height:34,borderRadius:8,background:c.source==="google"?"linear-gradient(135deg,#EA4335,#FBBC04)":"linear-gradient(135deg,#6366F1,#8B5CF6)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:14,flexShrink:0}}>{c.name.charAt(0)}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600,color:"#1E293B",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}{c.position&&<span style={{fontSize:10,color:"#94A3B8",fontWeight:400}}> {c.position}</span>}{c.source==="google"&&<span style={{fontSize:8,color:"#EA4335",marginLeft:4,fontWeight:700}}>G</span>}</div>
+                    <div style={{fontSize:11,color:"#64748B",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.company&&`🏢 ${c.company}`}{c.phone&&` 📱 ${c.phone}`}</div>
+                  </div>
+                  <div style={{display:"flex",gap:3,flexShrink:0}}>
+                    {c.phone&&<a href={`tel:${c.phone}`} onClick={e=>e.stopPropagation()} style={{padding:"4px 7px",borderRadius:6,background:"#DBEAFE",fontSize:11,color:"#2563EB",textDecoration:"none"}}>📞</a>}
+                    {c.email&&<a href={`mailto:${c.email}`} onClick={e=>e.stopPropagation()} style={{padding:"4px 7px",borderRadius:6,background:"#F0FDF4",fontSize:11,color:"#059669",textDecoration:"none"}}>📧</a>}
+                    {c.phone&&<a href={`sms:${c.phone}`} onClick={e=>e.stopPropagation()} style={{padding:"4px 7px",borderRadius:6,background:"#FEF3C7",fontSize:11,color:"#D97706",textDecoration:"none"}}>💬</a>}
+                  </div>
+                </div>)}</div>
+            </>}
+        </>}
+
+        {/* ═══ NEWS ═══ */}
+        {tab==="news"&&<NewsTab onSave={saveItem} isItemSaved={isItemSaved} onShare={shareUrl}/>}
+
+        {/* ═══ PUBMED ═══ */}
+        {tab==="pubmed"&&<PubMedTab onSave={saveItem} isItemSaved={isItemSaved} onShare={shareUrl}/>}
+
+        {/* ═══ SCRAP ═══ */}
+        {tab==="scrap"&&<ScrapTab items={savedItems} onRemove={saveItem} onShare={shareUrl}/>}
+      </div>
+
+      {/* FAB - only show for schedule/todo/memo/contacts */}
+      {["schedule","todo","memo","contacts"].includes(tab)&&<button onClick={()=>{if(tab==="schedule"){setEditEv(null);setShowEF(true);}else if(tab==="todo"){setEditTd(null);setShowTF(true);}else if(tab==="memo"){setEditMe(null);setShowMF(true);}else{setEditCo(null);setShowCF(true);}}}
+        style={{position:"fixed",bottom:20,right:20,width:52,height:52,borderRadius:"50%",border:"none",background:"linear-gradient(135deg,#3B82F6,#6366F1)",color:"#fff",fontSize:26,cursor:"pointer",boxShadow:"0 4px 20px rgba(59,130,246,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:90}}>+</button>}
+
+      {/* Modals */}
+      {showEF&&<EventForm event={editEv} onSave={saveEv} onClose={()=>{setShowEF(false);setEditEv(null);}} onDelete={delEv} contacts={contacts} selectedDate={selDate} onAddContact={()=>{setShowEF(false);setEditCo(null);setShowCF(true);}}/>}
+      {showTF&&<TodoForm todo={editTd} onSave={saveTd} onClose={()=>{setShowTF(false);setEditTd(null);}} onDelete={delTd}/>}
+      {showMF&&<MemoForm memo={editMe} onSave={saveMe} onClose={()=>{setShowMF(false);setEditMe(null);}} onDelete={delMe} onArchive={archiveMe}/>}
+      {showCF&&<ContactForm contact={editCo} onSave={saveCo} onClose={()=>{setShowCF(false);setEditCo(null);}} onDelete={delCo}/>}
+      {shareItem&&<ShareModal item={shareItem} onClose={()=>setShareItem(null)} contacts={contacts}/>}
+      {showSettings&&<SettingsModal onClose={()=>setShowSettings(false)} events={events} todos={todos} memos={memos} contacts={contacts} routines={routines} savedItems={savedItems} routineItems={routineItems} memoArchive={memoArchive} onRestore={restoreData} doorayStatus={doorayStatus} onDooraySync={()=>syncDooray(events)} user={user} cloudSt={cloudSt} onLogin={login} onLogout={logout} fbReady={fbReady}/>}
+
+      <style>{`
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+        *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+        input,select,textarea,button{font-family:'Noto Sans KR',sans-serif}
+        ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:3px}
+        /* Hide scrollbar on tab bar */
+        div::-webkit-scrollbar{height:0;width:0}
+        @media(max-width:480px){input,textarea,select{font-size:16px!important}}
+        /* Tablet 10-12 inch */
+        @media(min-width:768px){
+          .bp-main-content{max-width:720px!important}
+        }
+        /* Notebook */
+        @media(min-width:1024px){
+          .bp-main-content{max-width:800px!important}
+        }
+        @media(min-width:1280px){
+          .bp-main-content{max-width:900px!important}
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ─── Styles ───
+const inpS={width:"100%",padding:"9px 12px",borderRadius:8,border:"1.5px solid #E2E8F0",fontSize:14,color:"#1E293B",outline:"none",background:"#F8FAFC",transition:"border-color 0.2s"};
+const labS={display:"block",fontSize:10,fontWeight:600,color:"#64748B",marginBottom:2};
+const btnS={padding:"9px 16px",borderRadius:8,border:"none",fontWeight:600,fontSize:13,cursor:"pointer",transition:"all 0.15s"};
+const closeS={border:"none",background:"none",fontSize:18,cursor:"pointer",color:"#94A3B8",padding:4};
+const navS={border:"none",background:"#F1F5F9",borderRadius:7,width:30,height:30,cursor:"pointer",fontSize:13,color:"#475569",display:"flex",alignItems:"center",justifyContent:"center"};
+const modalOverlay={position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",backdropFilter:"blur(4px)",display:"flex",justifyContent:"center",alignItems:"center",zIndex:200,padding:12};
+const modalCont={background:"#fff",borderRadius:18,padding:20,width:"100%",maxWidth:440,maxHeight:"88vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.25)"};
+const attachBtnS={padding:"6px 10px",borderRadius:6,border:"2px dashed #CBD5E1",background:"#fff",color:"#64748B",fontSize:10,fontWeight:600,cursor:"pointer"};
+const searchResultS={display:"flex",alignItems:"center",gap:6,padding:"7px 8px",cursor:"pointer",borderRadius:6,fontSize:12,color:"#1E293B",borderBottom:"1px solid #F8FAFC",transition:"background 0.12s"};
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(React.createElement(BizPlanner));
+  </script>
+</body>
+</html>
