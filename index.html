@@ -416,7 +416,7 @@ function ShareModal({item,onClose,contacts}){
 }
 
 // ─── Settings Modal ───
-function SettingsModal({onClose,events,todos,memos,contacts,routines,savedItems,routineItems,onRestore,doorayStatus,onDooraySync,user,cloudSt,onLogin,onLogout,fbReady}){
+function SettingsModal({onClose,events,todos,memos,contacts,routines,savedItems,routineItems,memoArchive,todoArchive,onRestore,doorayStatus,onDooraySync,user,cloudSt,onLogin,onLogout,fbReady}){
   const fileRef=useRef(null);
   const[driveMode,setDriveMode]=useState(null); // null, "list", "backing", "restoring"
   const[driveMsg,setDriveMsg]=useState("");
@@ -426,7 +426,7 @@ function SettingsModal({onClose,events,todos,memos,contacts,routines,savedItems,
   const getAllData=()=>({
     'bp-events':events.filter(e=>e.source!=="dooray"),
     'bp-todos':todos,'bp-memos':memos,'bp-contacts':contacts,
-    'bp-routines':routines,'bp-saved':savedItems,'bp-routine-items':routineItems,
+    'bp-routines':routines,'bp-saved':savedItems,'bp-routine-items':routineItems,'bp-memo-archive':memoArchive,'bp-todo-archive':todoArchive,
   });
 
   const exportData=()=>{
@@ -569,8 +569,8 @@ function SettingsModal({onClose,events,todos,memos,contacts,routines,savedItems,
         {/* Data Stats */}
         <div style={{background:"#F8FAFC",borderRadius:10,padding:12}}>
           <div style={{fontSize:13,fontWeight:700,color:"#1E293B",marginBottom:6}}>📊 데이터</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
-            {[{l:"일정",v:events.length,c:"#3B82F6"},{l:"할일",v:todos.length,c:"#10B981"},{l:"메모",v:memos.length,c:"#F59E0B"},{l:"연락처",v:contacts.length,c:"#8B5CF6"}].map(s=>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:6}}>
+            {[{l:"일정",v:events.length,c:"#3B82F6"},{l:"할일",v:todos.length,c:"#10B981"},{l:"메모",v:memos.length,c:"#F59E0B"},{l:"보관",v:(memoArchive||[]).length+(todoArchive||[]).length,c:"#15803D"},{l:"연락처",v:contacts.length,c:"#8B5CF6"}].map(s=>
               <div key={s.l} style={{textAlign:"center"}}><div style={{fontSize:16,fontWeight:800,color:s.c}}>{s.v}</div><div style={{fontSize:9,color:"#94A3B8"}}>{s.l}</div></div>)}
           </div>
         </div>
@@ -781,7 +781,7 @@ function TodoForm({todo,onSave,onClose,onDelete}){
 }
 
 // ─── Memo Form ───
-function MemoForm({memo,onSave,onClose,onDelete}){
+function MemoForm({memo,onSave,onClose,onDelete,onArchive}){
   const[f,setF]=useState(memo||{id:uid(),title:"",date:TODAY,type:"free",content:"",attendees:"",agenda:"",decisions:"",actionItems:"",nextMeeting:"",tags:"",attachments:[],voiceNotes:[]});
   const[confirmDel,setConfirmDel]=useState(false);const u=(k,v)=>setF(p=>({...p,[k]:v}));
   const mt=MEMO_T[f.type]||MEMO_T.free;const fileRef=useRef(null);const camRef=useRef(null);const[recording,setRecording]=useState(false);
@@ -834,6 +834,7 @@ function MemoForm({memo,onSave,onClose,onDelete}){
       </div>
       <div style={{display:"flex",gap:6,marginTop:14}}>
         {memo&&<button onClick={()=>setConfirmDel(true)} style={{...btnS,background:"#FEE2E2",color:"#DC2626",fontSize:12}}>삭제</button>}
+        {memo&&onArchive&&<button onClick={()=>onArchive({...f})} title="완료 처리 → 보관함으로 이동" style={{...btnS,background:"#DCFCE7",color:"#15803D",fontSize:12}}>✅ 완료</button>}
         <div style={{flex:1}}/><button onClick={onClose} style={{...btnS,background:"#F1F5F9",color:"#64748B",fontSize:12}}>취소</button>
         <button onClick={()=>{if(f.title.trim())onSave(f);}} style={{...btnS,background:"#1E293B",color:"#fff",fontSize:12,opacity:f.title.trim()?1:0.4}}>저장</button></div>
       {confirmDel&&<ConfirmDialog message={`"${memo.title}" 삭제?`} onConfirm={()=>onDelete(memo.id)} onCancel={()=>setConfirmDel(false)}/>}
@@ -1165,13 +1166,15 @@ function BizPlanner(){
   const[editEv,setEditEv]=useState(null);const[editTd,setEditTd]=useState(null);const[editMe,setEditMe]=useState(null);const[editCo,setEditCo]=useState(null);
   const[shareItem,setShareItem]=useState(null);const[showSettings,setShowSettings]=useState(false);
   const cloudOkRef=useRef(false); // SAFETY: only allow cloud writes after successful cloud load
-  const[search,setSearch]=useState("");const[todoFilt,setTodoFilt]=useState("all");const[memoFilt,setMemoFilt]=useState("all");
+  const[search,setSearch]=useState("");const[todoFilt,setTodoFilt]=useState("all");const[memoFilt,setMemoFilt]=useState("all");const[memoView,setMemoView]=useState("active");const[archQ,setArchQ]=useState("");const[todoView,setTodoView]=useState("active");const[tArchQ,setTArchQ]=useState("");
   const[todoSort,setTodoSort]=useState("priority");const[syncSt,setSyncSt]=useState("idle");const[globalSearch,setGlobalSearch]=useState(false);
   const[doorayStatus,setDoorayStatus]=useState(null);const[lastSync,setLastSync]=useState(null);
   const[checkedEvs,setCheckedEvs]=useState(()=>{try{return JSON.parse(localStorage.getItem("bp-checked-evs")||"[]");}catch{return[];}});
   const[showChecked,setShowChecked]=useState(false);
   const[routines,setRoutines]=useState(()=>ld("bp-routines",{}));
   const[savedItems,setSavedItems]=useState(()=>ld("bp-saved",[]));
+  const[memoArchive,setMemoArchive]=useState(()=>ld("bp-memo-archive",[]));
+  const[todoArchive,setTodoArchive]=useState(()=>ld("bp-todo-archive",[]));
   const[routineItems,setRoutineItems]=useState(()=>withWeekly(ld("bp-routine-items",DEFAULT_ROUTINES)));
   // ─── Auth State ───
   const[user,setUser]=useState(null);
@@ -1237,9 +1240,9 @@ function BizPlanner(){
     cloudOkRef.current=false; // prevent any pending saves
     setSkipLogin(false);localStorage.removeItem("bp-skip-login");
     // Clear all state so next user gets fresh data
-    setEvents([]);setTodos([]);setMemos([]);setContacts([]);setRoutines({});setSavedItems([]);setRoutineItems(DEFAULT_ROUTINES);
+    setEvents([]);setTodos([]);setMemos([]);setContacts([]);setRoutines({});setSavedItems([]);setRoutineItems(DEFAULT_ROUTINES);setMemoArchive([]);setTodoArchive([]);
     // Clear localStorage for this session
-    ["bp-events","bp-todos","bp-memos","bp-contacts","bp-routines","bp-saved","bp-routine-items"].forEach(k=>localStorage.removeItem(k));
+    ["bp-events","bp-todos","bp-memos","bp-contacts","bp-routines","bp-saved","bp-routine-items","bp-memo-archive","bp-todo-archive"].forEach(k=>localStorage.removeItem(k));
     setCloudSt("idle");setLoading(true);
   };
 
@@ -1326,13 +1329,15 @@ function BizPlanner(){
       cloudLoad(user.uid).then(cloud=>{
         if(cloud && Object.keys(cloud).length>1){
           // Cloud has data → load it
-          const ce=cloud['bp-events']||[],ct=cloud['bp-todos']||[],cm=cloud['bp-memos']||[],cc=cloud['bp-contacts']||[],cr=cloud['bp-routines']||{},cs=cloud['bp-saved']||[],ci=withWeekly(cloud['bp-routine-items']||DEFAULT_ROUTINES);
+          const ce=cloud['bp-events']||[],ct=cloud['bp-todos']||[],cm=cloud['bp-memos']||[],cc=cloud['bp-contacts']||[],cr=cloud['bp-routines']||{},cs=cloud['bp-saved']||[],ci=withWeekly(cloud['bp-routine-items']||DEFAULT_ROUTINES),ca=cloud['bp-memo-archive']||[],cta=cloud['bp-todo-archive']||[];
           setEvents(ce);sv('bp-events',ce);
           setTodos(ct);sv('bp-todos',ct);
           setMemos(cm);sv('bp-memos',cm);
           setContacts(cc);sv('bp-contacts',cc);
           setRoutines(cr);sv('bp-routines',cr);
           setSavedItems(cs);sv('bp-saved',cs);
+          setMemoArchive(ca);sv('bp-memo-archive',ca);
+          setTodoArchive(cta);sv('bp-todo-archive',cta);
           setRoutineItems(ci);sv('bp-routine-items',ci);
           cloudOkRef.current=true;
           if(ci!==cloud['bp-routine-items'])cloudSaveAll(user.uid,{'bp-routine-items':ci}).catch(()=>{}); // persist weekly-routine migration
@@ -1341,35 +1346,35 @@ function BizPlanner(){
           syncDooray(ce);
         } else if(cloud===null){
           // No cloud doc at all → truly first login, upload local data
-          const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]),rr=ld('bp-routines',{}),ss=ld('bp-saved',[]),ri=withWeekly(ld('bp-routine-items',DEFAULT_ROUTINES));
-          setEvents(e);setTodos(t);setMemos(m);setContacts(c);setRoutines(rr);setSavedItems(ss);setRoutineItems(ri);setLoading(false);
+          const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]),rr=ld('bp-routines',{}),ss=ld('bp-saved',[]),ri=withWeekly(ld('bp-routine-items',DEFAULT_ROUTINES)),ma=ld('bp-memo-archive',[]),ta=ld('bp-todo-archive',[]);
+          setEvents(e);setTodos(t);setMemos(m);setContacts(c);setRoutines(rr);setSavedItems(ss);setRoutineItems(ri);setMemoArchive(ma);setTodoArchive(ta);setLoading(false);
           // Only upload if there's actual data
           if(e.length||t.length||m.length||c.length){
-            cloudSaveAll(user.uid,{'bp-events':e.filter(ev=>ev.source!=='dooray'),'bp-todos':t,'bp-memos':m,'bp-contacts':c,'bp-routines':rr,'bp-saved':ss,'bp-routine-items':ri});
+            cloudSaveAll(user.uid,{'bp-events':e.filter(ev=>ev.source!=='dooray'),'bp-todos':t,'bp-memos':m,'bp-contacts':c,'bp-routines':rr,'bp-saved':ss,'bp-routine-items':ri,'bp-memo-archive':ma,'bp-todo-archive':ta});
           }
           cloudOkRef.current=true;
           setCloudSt("synced");
           syncDooray(e);
         } else {
           // Cloud doc exists but might be empty → still load, allow writes
-          const ce=cloud['bp-events']||[],ct=cloud['bp-todos']||[],cm=cloud['bp-memos']||[],cc=cloud['bp-contacts']||[],cr=cloud['bp-routines']||{},cs=cloud['bp-saved']||[],ci=withWeekly(cloud['bp-routine-items']||DEFAULT_ROUTINES);
-          setEvents(ce);sv('bp-events',ce);setTodos(ct);sv('bp-todos',ct);setMemos(cm);sv('bp-memos',cm);setContacts(cc);sv('bp-contacts',cc);setRoutines(cr);sv('bp-routines',cr);setSavedItems(cs);sv('bp-saved',cs);setRoutineItems(ci);sv('bp-routine-items',ci);
+          const ce=cloud['bp-events']||[],ct=cloud['bp-todos']||[],cm=cloud['bp-memos']||[],cc=cloud['bp-contacts']||[],cr=cloud['bp-routines']||{},cs=cloud['bp-saved']||[],ci=withWeekly(cloud['bp-routine-items']||DEFAULT_ROUTINES),ca=cloud['bp-memo-archive']||[],cta=cloud['bp-todo-archive']||[];
+          setEvents(ce);sv('bp-events',ce);setTodos(ct);sv('bp-todos',ct);setMemos(cm);sv('bp-memos',cm);setContacts(cc);sv('bp-contacts',cc);setRoutines(cr);sv('bp-routines',cr);setSavedItems(cs);sv('bp-saved',cs);setRoutineItems(ci);sv('bp-routine-items',ci);setMemoArchive(ca);sv('bp-memo-archive',ca);setTodoArchive(cta);sv('bp-todo-archive',cta);
           cloudOkRef.current=true;
           setCloudSt("synced");setLoading(false);syncDooray(ce);
         }
       }).catch((err)=>{
         console.error("Cloud load failed:",err);
         // Cloud error → load local BUT DO NOT allow cloud writes (prevent overwrite!)
-        const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]),rr2=ld('bp-routines',{}),ss2=ld('bp-saved',[]),ri2=withWeekly(ld('bp-routine-items',DEFAULT_ROUTINES));
-        setEvents(e);setTodos(t);setMemos(m);setContacts(c);setRoutines(rr2);setSavedItems(ss2);setRoutineItems(ri2);setLoading(false);
+        const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]),rr2=ld('bp-routines',{}),ss2=ld('bp-saved',[]),ri2=withWeekly(ld('bp-routine-items',DEFAULT_ROUTINES)),ma2=ld('bp-memo-archive',[]),ta2=ld('bp-todo-archive',[]);
+        setEvents(e);setTodos(t);setMemos(m);setContacts(c);setRoutines(rr2);setSavedItems(ss2);setRoutineItems(ri2);setMemoArchive(ma2);setTodoArchive(ta2);setLoading(false);
         cloudOkRef.current=false; // SAFETY: do NOT write to cloud
         setCloudSt("error");
         syncDooray(e);
       });
     } else {
       // Not logged in → local only
-      const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]),rr3=ld('bp-routines',{}),ss3=ld('bp-saved',[]),ri3=withWeekly(ld('bp-routine-items',DEFAULT_ROUTINES));
-      setEvents(e);setTodos(t);setMemos(m);setContacts(c);setRoutines(rr3);setSavedItems(ss3);setRoutineItems(ri3);setLoading(false);
+      const e=ld('bp-events',[]),t=ld('bp-todos',[]),m=ld('bp-memos',[]),c=ld('bp-contacts',[]),rr3=ld('bp-routines',{}),ss3=ld('bp-saved',[]),ri3=withWeekly(ld('bp-routine-items',DEFAULT_ROUTINES)),ma3=ld('bp-memo-archive',[]),ta3=ld('bp-todo-archive',[]);
+      setEvents(e);setTodos(t);setMemos(m);setContacts(c);setRoutines(rr3);setSavedItems(ss3);setRoutineItems(ri3);setMemoArchive(ma3);setTodoArchive(ta3);setLoading(false);
       syncDooray(e);
     }
   },[user,authLoading]);
@@ -1387,6 +1392,8 @@ function BizPlanner(){
         if(cloud['bp-contacts']){const d=cloud['bp-contacts'];setContacts(d);sv('bp-contacts',d);}
         if(cloud['bp-routines']){const d=cloud['bp-routines'];setRoutines(d);sv('bp-routines',d);}
         if(cloud['bp-saved']){const d=cloud['bp-saved'];setSavedItems(d);sv('bp-saved',d);}
+        if(cloud['bp-memo-archive']){const d=cloud['bp-memo-archive'];setMemoArchive(d);sv('bp-memo-archive',d);}
+        if(cloud['bp-todo-archive']){const d=cloud['bp-todo-archive'];setTodoArchive(d);sv('bp-todo-archive',d);}
         if(cloud['bp-routine-items']){const d=cloud['bp-routine-items'];setRoutineItems(d);sv('bp-routine-items',d);}
         syncDooray(cloud['bp-events']||[]);
       }
@@ -1408,7 +1415,7 @@ function BizPlanner(){
   },[syncDooray]);
 
   // ─── Local storage sync (8s) ───
-  useEffect(()=>{const t=setInterval(()=>{const e=ld("bp-events",[]),t2=ld("bp-todos",[]),m=ld("bp-memos",[]),c=ld("bp-contacts",[]);setEvents(e);setTodos(t2);setMemos(m);setContacts(c);},8000);return()=>clearInterval(t);},[]);
+  useEffect(()=>{const t=setInterval(()=>{const e=ld("bp-events",[]),t2=ld("bp-todos",[]),m=ld("bp-memos",[]),c=ld("bp-contacts",[]),ma=ld("bp-memo-archive",[]),ta=ld("bp-todo-archive",[]);setEvents(e);setTodos(t2);setMemos(m);setContacts(c);setMemoArchive(ma);setTodoArchive(ta);},8000);return()=>clearInterval(t);},[]);
 
   // ─── Auto Google Drive Backup (daily) ───
   useEffect(()=>{
@@ -1427,7 +1434,7 @@ function BizPlanner(){
         await driveBackup(token,{
           'bp-events':ld('bp-events',[]).filter(e=>e.source!=='dooray'),
           'bp-todos':ld('bp-todos',[]),'bp-memos':ld('bp-memos',[]),'bp-contacts':ld('bp-contacts',[]),
-          'bp-routines':ld('bp-routines',{}),'bp-saved':ld('bp-saved',[]),'bp-routine-items':ld('bp-routine-items',DEFAULT_ROUTINES)
+          'bp-routines':ld('bp-routines',{}),'bp-saved':ld('bp-saved',[]),'bp-routine-items':ld('bp-routine-items',DEFAULT_ROUTINES),'bp-memo-archive':ld('bp-memo-archive',[]),'bp-todo-archive':ld('bp-todo-archive',[])
         });
         localStorage.setItem('bp-last-backup',new Date().toISOString());
         console.log("✅ Auto backup complete");
@@ -1451,7 +1458,9 @@ function BizPlanner(){
           'bp-todos':ld('bp-todos',[]),'bp-memos':ld('bp-memos',[]),'bp-contacts':ld('bp-contacts',[]),
           'bp-routines':ld('bp-routines',{}),
           'bp-saved':ld('bp-saved',[]),
-          'bp-routine-items':ld('bp-routine-items',DEFAULT_ROUTINES)
+          'bp-routine-items':ld('bp-routine-items',DEFAULT_ROUTINES),
+          'bp-memo-archive':ld('bp-memo-archive',[]),
+          'bp-todo-archive':ld('bp-todo-archive',[])
         }).then(()=>setCloudSt("synced")).catch(()=>setCloudSt("error"));
       },1500);
     }
@@ -1555,9 +1564,29 @@ function BizPlanner(){
   };
   const saveTd=td=>{persist("bp-todos",editTd?todos.map(t=>t.id===td.id?td:t):[...todos,td],setTodos);setShowTF(false);setEditTd(null);};
   const delTd=id=>{persist("bp-todos",todos.filter(t=>t.id!==id),setTodos);setShowTF(false);setEditTd(null);};
+  // ─── Todo archive (완료 할일 별도 보관) ───
+  const archiveTd=ids=>{const set=new Set(Array.isArray(ids)?ids:[ids]);const now=new Date().toISOString();
+    const moving=todos.filter(t=>set.has(t.id)).map(t=>({...t,completed:true,completedDate:t.completedDate||TODAY,archivedAt:now}));
+    if(!moving.length)return;
+    persist("bp-todo-archive",[...moving,...todoArchive.filter(a=>!set.has(a.id))],setTodoArchive);
+    persist("bp-todos",todos.filter(t=>!set.has(t.id)),setTodos);setShowTF(false);setEditTd(null);};
+  const unarchiveTd=id=>{const a=todoArchive.find(x=>x.id===id);if(!a)return;const {archivedAt,...t}=a;
+    persist("bp-todos",[...todos.filter(x=>x.id!==id),t],setTodos);
+    persist("bp-todo-archive",todoArchive.filter(x=>x.id!==id),setTodoArchive);};
+  const delArchivedTd=id=>{persist("bp-todo-archive",todoArchive.filter(x=>x.id!==id),setTodoArchive);};
   const togTd=id=>{persist("bp-todos",todos.map(t=>t.id===id?{...t,completed:!t.completed,completedDate:!t.completed?TODAY:null}:t),setTodos);};
   const saveMe=m=>{persist("bp-memos",editMe?memos.map(e=>e.id===m.id?m:e):[...memos,m],setMemos);setShowMF(false);setEditMe(null);};
   const delMe=id=>{persist("bp-memos",memos.filter(m=>m.id!==id),setMemos);setShowMF(false);setEditMe(null);};
+  // ─── Memo archive (완료 메모 별도 보관) ───
+  const archiveMe=arg=>{const id=typeof arg==="string"?arg:arg.id;const m=typeof arg==="string"?memos.find(x=>x.id===id):arg;if(!m)return;
+    const arch={...m,archivedAt:new Date().toISOString()};
+    persist("bp-memo-archive",[arch,...memoArchive.filter(a=>a.id!==id)],setMemoArchive);
+    persist("bp-memos",memos.filter(x=>x.id!==id),setMemos);setShowMF(false);setEditMe(null);};
+  const unarchiveMe=id=>{const a=memoArchive.find(x=>x.id===id);if(!a)return;
+    const {archivedAt,...m}=a;
+    persist("bp-memos",[...memos.filter(x=>x.id!==id),m],setMemos);
+    persist("bp-memo-archive",memoArchive.filter(x=>x.id!==id),setMemoArchive);};
+  const delArchived=id=>{persist("bp-memo-archive",memoArchive.filter(x=>x.id!==id),setMemoArchive);};
   const saveCo=c=>{persist("bp-contacts",editCo?contacts.map(e=>e.id===c.id?c:e):[...contacts,c],setContacts);setShowCF(false);setEditCo(null);};
   const delCo=id=>{persist("bp-contacts",contacts.filter(c=>c.id!==id),setContacts);setShowCF(false);setEditCo(null);};
   const[gImporting,setGImporting]=useState(false);const[gImportMsg,setGImportMsg]=useState("");
@@ -1598,11 +1627,13 @@ function BizPlanner(){
     const rt=d['bp-routines']||d.routines||{};
     const sv2=d['bp-saved']||d.savedItems||[];
     const ri=withWeekly(d['bp-routine-items']||d.routineItems||DEFAULT_ROUTINES);
-    sv("bp-events",ev);sv("bp-todos",td);sv("bp-memos",mm);sv("bp-contacts",cc);sv("bp-routines",rt);sv("bp-saved",sv2);sv("bp-routine-items",ri);
-    setEvents(ev);setTodos(td);setMemos(mm);setContacts(cc);setRoutines(rt);setSavedItems(sv2);setRoutineItems(ri);
+    const ma=d['bp-memo-archive']||[];
+    const ta=d['bp-todo-archive']||[];
+    sv("bp-events",ev);sv("bp-todos",td);sv("bp-memos",mm);sv("bp-contacts",cc);sv("bp-routines",rt);sv("bp-saved",sv2);sv("bp-routine-items",ri);sv("bp-memo-archive",ma);sv("bp-todo-archive",ta);
+    setEvents(ev);setTodos(td);setMemos(mm);setContacts(cc);setRoutines(rt);setSavedItems(sv2);setRoutineItems(ri);setMemoArchive(ma);setTodoArchive(ta);
     // Sync to cloud
     if(user&&fbDb&&cloudOkRef.current){
-      cloudSaveAll(user.uid,{'bp-events':ev.filter(e=>e.source!=='dooray'),'bp-todos':td,'bp-memos':mm,'bp-contacts':cc,'bp-routines':rt,'bp-saved':sv2,'bp-routine-items':ri}).catch(()=>{});
+      cloudSaveAll(user.uid,{'bp-events':ev.filter(e=>e.source!=='dooray'),'bp-todos':td,'bp-memos':mm,'bp-contacts':cc,'bp-routines':rt,'bp-saved':sv2,'bp-routine-items':ri,'bp-memo-archive':ma,'bp-todo-archive':ta}).catch(()=>{});
     }
     setShowSettings(false);
   };
@@ -1627,6 +1658,8 @@ function BizPlanner(){
   // Split into visible (unchecked) and checked
   const dayEvsVisible=dayEvs.filter(e=>!checkedEvs.includes(e.id));
   const dayEvsChecked=dayEvs.filter(e=>checkedEvs.includes(e.id));
+  const todoText=t=>[t.title,t.notes,t.category,t.priority,t.dueDate].filter(Boolean).join(" ").toLowerCase();
+  const fTArch=todoArchive.filter(t=>{const q=(tArchQ||tabSearch).trim().toLowerCase();if(!q)return true;const x=todoText(t);return q.split(/\s+/).every(w=>x.includes(w));}).sort((a,b)=>(b.archivedAt||"").localeCompare(a.archivedAt||""));
   const fTodos=todos.filter(t=>todoFilt==="active"?!t.completed:todoFilt==="completed"?t.completed:true)
     .filter(t=>!tabSearch||t.title.toLowerCase().includes(tabSearch.toLowerCase()))
     .sort((a,b)=>{
@@ -1634,6 +1667,8 @@ function BizPlanner(){
       if(todoSort==="due"){if(!a.dueDate&&!b.dueDate)return 0;if(!a.dueDate)return 1;if(!b.dueDate)return -1;return a.dueDate.localeCompare(b.dueDate);}
       return 0;
     });
+  const memoText=m=>[m.title,m.content,m.decisions,m.actionItems,m.agenda,m.attendees,m.tags,m.nextMeeting].filter(Boolean).join(" ").toLowerCase();
+  const fArch=memoArchive.filter(m=>memoFilt!=="all"?m.type===memoFilt:true).filter(m=>{const q=(archQ||tabSearch).trim().toLowerCase();if(!q)return true;const t=memoText(m);return q.split(/\s+/).every(w=>t.includes(w));}).sort((a,b)=>(b.archivedAt||"").localeCompare(a.archivedAt||""));
   const fMemos=memos.filter(m=>memoFilt!=="all"?m.type===memoFilt:true).filter(m=>!tabSearch||m.title.toLowerCase().includes(tabSearch.toLowerCase())||m.content?.toLowerCase().includes(tabSearch.toLowerCase())).sort((a,b)=>b.date.localeCompare(a.date));
   const upcoming=dedup(events.filter(e=>e.date>TODAY)).sort((a,b)=>a.date.localeCompare(b.date)||(a.time||"").localeCompare(b.time||"")).slice(0,8);
   const selDO=pD(selDate);const dateLbl=`${selDO.getMonth()+1}월 ${selDO.getDate()}일 (${DAYS_KR[selDO.getDay()]})`;
@@ -1643,6 +1678,8 @@ function BizPlanner(){
     events:events.filter(e=>e.title?.toLowerCase().includes(search.toLowerCase())||e.location?.toLowerCase().includes(search.toLowerCase())),
     todos:todos.filter(t=>t.title.toLowerCase().includes(search.toLowerCase())),
     memos:memos.filter(m=>m.title.toLowerCase().includes(search.toLowerCase())||m.content?.toLowerCase().includes(search.toLowerCase())),
+    archived:memoArchive.filter(m=>memoText(m).includes(search.toLowerCase())),
+    archivedTodos:todoArchive.filter(t=>todoText(t).includes(search.toLowerCase())),
     contacts:contacts.filter(c=>c.name.toLowerCase().includes(search.toLowerCase())||c.company?.toLowerCase().includes(search.toLowerCase())),
   }:null;
 
@@ -1711,15 +1748,19 @@ function BizPlanner(){
         </div>
 
         {/* Global Search Results */}
-        {gResults&&(gResults.events.length+gResults.todos.length+gResults.memos.length+gResults.contacts.length)>0&&(
+        {gResults&&(gResults.events.length+gResults.todos.length+gResults.memos.length+gResults.archived.length+gResults.archivedTodos.length+gResults.contacts.length)>0&&(
           <div style={{background:"#fff",borderRadius:10,marginTop:6,padding:10,boxShadow:"0 2px 8px rgba(0,0,0,0.06)",maxHeight:260,overflow:"auto"}}>
-            <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",marginBottom:6}}>검색 결과 ({gResults.events.length+gResults.todos.length+gResults.memos.length+gResults.contacts.length}건)</div>
+            <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",marginBottom:6}}>검색 결과 ({gResults.events.length+gResults.todos.length+gResults.memos.length+gResults.archived.length+gResults.archivedTodos.length+gResults.contacts.length}건)</div>
             {gResults.events.map(e=><div key={e.id} onClick={()=>{setEditEv(e);setShowEF(true);setGlobalSearch(false);setSearch("");}} style={searchResultS}>
               <span>📅</span><span style={{flex:1,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.title}</span><span style={{fontSize:10,color:"#94A3B8",flexShrink:0}}>{e.date}</span></div>)}
             {gResults.todos.map(t=><div key={t.id} onClick={()=>{setEditTd(t);setShowTF(true);setGlobalSearch(false);setSearch("");}} style={searchResultS}>
               <span>✅</span><span style={{flex:1,fontWeight:600}}>{t.title}</span></div>)}
             {gResults.memos.map(m=><div key={m.id} onClick={()=>{setEditMe(m);setShowMF(true);setGlobalSearch(false);setSearch("");}} style={searchResultS}>
               <span>{MEMO_T[m.type]?.icon||"📝"}</span><span style={{flex:1,fontWeight:600}}>{m.title}</span></div>)}
+            {gResults.archivedTodos.map(t=><div key={t.id} onClick={()=>{setTab("todo");setTodoView("archive");setTArchQ(t.title);setGlobalSearch(false);setSearch("");}} style={{...searchResultS,opacity:0.7}}>
+              <span>📦</span><span style={{flex:1,fontWeight:600}}>{t.title}</span><span style={{fontSize:9,color:"#15803D",fontWeight:700}}>완료</span></div>)}
+            {gResults.archived.map(m=><div key={m.id} onClick={()=>{setTab("memo");setMemoView("archive");setArchQ(m.title);setGlobalSearch(false);setSearch("");}} style={{...searchResultS,opacity:0.7}}>
+              <span>📦</span><span style={{flex:1,fontWeight:600}}>{m.title}</span><span style={{fontSize:9,color:"#15803D",fontWeight:700}}>완료</span></div>)}
             {gResults.contacts.map(c=><div key={c.id} onClick={()=>{setEditCo(c);setShowCF(true);setGlobalSearch(false);setSearch("");}} style={searchResultS}>
               <span>👤</span><span style={{flex:1,fontWeight:600}}>{c.name}</span><span style={{fontSize:10,color:"#94A3B8"}}>{c.company}</span></div>)}
           </div>
@@ -1809,6 +1850,33 @@ function BizPlanner(){
 
         {/* ═══ TODO ═══ */}
         {tab==="todo"&&<>
+          <div style={{display:"flex",gap:4,marginBottom:8}}>
+            <button onClick={()=>setTodoView("active")} style={{flex:1,padding:"7px 0",borderRadius:8,border:todoView==="active"?"2px solid #1E293B":"2px solid #E2E8F0",background:todoView==="active"?"#1E293B":"#fff",color:todoView==="active"?"#fff":"#64748B",fontWeight:700,fontSize:11,cursor:"pointer"}}>✅ 할일 {todos.length}</button>
+            <button onClick={()=>setTodoView("archive")} style={{flex:1,padding:"7px 0",borderRadius:8,border:todoView==="archive"?"2px solid #15803D":"2px solid #E2E8F0",background:todoView==="archive"?"#15803D":"#fff",color:todoView==="archive"?"#fff":"#64748B",fontWeight:700,fontSize:11,cursor:"pointer"}}>📦 완료 보관함 {todoArchive.length}</button>
+          </div>
+          {todoView==="archive"&&<>
+            <input value={tArchQ} onChange={e=>setTArchQ(e.target.value)} placeholder="🔍 보관함 검색 (제목·메모·카테고리·마감일)" style={{width:"100%",padding:"9px 12px",borderRadius:10,border:"2px solid #BBF7D0",fontSize:13,marginBottom:8,boxSizing:"border-box",background:"#F0FDF4"}}/>
+            {fTArch.length===0?<div style={{textAlign:"center",padding:"30px 0",color:"#94A3B8"}}><div style={{fontSize:28}}>📦</div><div style={{fontSize:13,marginTop:4}}>{tArchQ?"검색 결과 없음":"보관된 할일이 없습니다"}</div><div style={{fontSize:11,marginTop:4,color:"#CBD5E1"}}>완료한 할일에서 📦 버튼을 누르면 이곳에 보관됩니다</div></div>
+            :<div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {fTArch.map(td=>{const p=PRI[td.priority]||PRI.medium;const work=td.completedDate&&td.createdDate?dBtw(td.createdDate,td.completedDate):null;return(
+                <div key={td.id} style={{background:"#F8FAFC",borderRadius:10,padding:"10px 12px",borderLeft:"4px solid #10B981",boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}>
+                  <div style={{fontSize:13,fontWeight:600,color:"#334155"}}>{td.title}</div>
+                  <div style={{display:"flex",gap:4,marginTop:3,flexWrap:"wrap",alignItems:"center"}}>
+                    <span style={{fontSize:9,background:p.bg,color:p.text,borderRadius:3,padding:"0px 4px",fontWeight:600}}>{p.label}</span>
+                    <span style={{fontSize:9,color:"#94A3B8"}}>{td.category}</span>
+                    {td.dueDate&&<span style={{fontSize:9,color:"#94A3B8"}}>마감 {td.dueDate}</span>}
+                    {td.completedDate&&<span style={{fontSize:9,color:"#10B981"}}>완료 {td.completedDate}{work!==null?` (${work}일 소요)`:""}</span>}
+                  </div>
+                  {td.notes&&<div style={{fontSize:11,color:"#64748B",marginTop:4,whiteSpace:"pre-wrap",maxHeight:48,overflow:"hidden"}}>{td.notes}</div>}
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginTop:6}}>
+                    <span style={{fontSize:9,color:"#94A3B8",flex:1}}>보관 {(td.archivedAt||"").substring(0,10)}</span>
+                    <button onClick={()=>setShareItem({title:td.title,content:`[할일·완료] ${td.title}\n우선순위: ${p.label}\n카테고리: ${td.category}${td.dueDate?`\n마감: ${td.dueDate}`:""}${td.completedDate?`\n완료: ${td.completedDate}`:""}${td.notes?`\n메모: ${td.notes}`:""}`})} style={{border:"none",background:"#F1F5F9",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:10,color:"#64748B"}}>📤</button>
+                    <button onClick={()=>unarchiveTd(td.id)} style={{border:"none",background:"#EFF6FF",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:10,fontWeight:700,color:"#2563EB"}}>↩ 복원</button>
+                    <button onClick={()=>{if(confirm(`"${td.title}" 영구 삭제?`))delArchivedTd(td.id);}} style={{border:"none",background:"#FEE2E2",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:10,fontWeight:700,color:"#DC2626"}}>삭제</button>
+                  </div>
+                </div>);})}</div>}
+          </>}
+          {todoView==="active"&&<>
           <div style={{display:"flex",gap:4,marginBottom:8,alignItems:"center",flexWrap:"wrap"}}>
             {[["all","전체",todos.length],["active","진행중",todos.filter(t=>!t.completed).length],["completed","완료",todos.filter(t=>t.completed).length]].map(([k,l,c])=>
               <button key={k} onClick={()=>setTodoFilt(k)} style={{padding:"5px 10px",borderRadius:16,border:todoFilt===k?"2px solid #1E293B":"2px solid #E2E8F0",background:todoFilt===k?"#1E293B":"#fff",color:todoFilt===k?"#fff":"#64748B",fontWeight:600,fontSize:11,cursor:"pointer"}}>{l}({c})</button>)}
@@ -1835,13 +1903,16 @@ function BizPlanner(){
                         {overdue?`🚨${Math.abs(dBtw(td.dueDate,TODAY))}일초과`:`D-${dBtw(TODAY,td.dueDate)}`}</span>}
                     </div>
                   </div>
+                  {td.completed&&<button onClick={e=>{e.stopPropagation();archiveTd(td.id);}} title="보관함으로 이동" style={{border:"none",background:"#DCFCE7",borderRadius:6,padding:"4px 6px",cursor:"pointer",fontSize:11,flexShrink:0,color:"#15803D",fontWeight:700}}>📦</button>}
                   <button onClick={e=>{e.stopPropagation();setShareItem({title:td.title,content:`[할일] ${td.title}\n우선순위: ${p.label}\n카테고리: ${td.category}${td.dueDate?`\n마감: ${td.dueDate}`:""}${td.notes?`\n메모: ${td.notes}`:""}`});}} style={{border:"none",background:"#F1F5F9",borderRadius:6,padding:"4px 6px",cursor:"pointer",fontSize:11,flexShrink:0,color:"#64748B"}}>📤</button>
                 </div>
               </div>);})}</div>}
           {todos.length>0&&<div style={{marginTop:14,background:"#fff",borderRadius:12,padding:12,boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
               <div style={{fontSize:12,fontWeight:700,color:"#1E293B"}}>📊 통계</div>
-              {todos.filter(t=>t.completed).length>0&&<button onClick={()=>{if(confirm(`완료 ${todos.filter(t=>t.completed).length}개 삭제?`))persist("bp-todos",todos.filter(t=>!t.completed),setTodos);}} style={{fontSize:10,padding:"3px 8px",borderRadius:5,border:"1px solid #FECACA",background:"#FEF2F2",color:"#DC2626",fontWeight:600,cursor:"pointer"}}>🗑 완료삭제</button>}
+              {todos.filter(t=>t.completed).length>0&&<div style={{display:"flex",gap:4}}>
+              <button onClick={()=>archiveTd(todos.filter(t=>t.completed).map(t=>t.id))} style={{fontSize:10,padding:"3px 8px",borderRadius:5,border:"1px solid #BBF7D0",background:"#F0FDF4",color:"#15803D",fontWeight:600,cursor:"pointer"}}>📦 완료보관</button>
+              <button onClick={()=>{if(confirm(`완료 ${todos.filter(t=>t.completed).length}개 삭제?`))persist("bp-todos",todos.filter(t=>!t.completed),setTodos);}} style={{fontSize:10,padding:"3px 8px",borderRadius:5,border:"1px solid #FECACA",background:"#FEF2F2",color:"#DC2626",fontWeight:600,cursor:"pointer"}}>🗑 완료삭제</button></div>}
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
               {[{l:"전체",v:todos.length,c:"#3B82F6"},{l:"완료율",v:`${todos.length>0?Math.round(todos.filter(t=>t.completed).length/todos.length*100):0}%`,c:"#10B981"},
@@ -1850,15 +1921,43 @@ function BizPlanner(){
               ].map(s=><div key={s.l} style={{textAlign:"center"}}><div style={{fontSize:18,fontWeight:800,color:s.c}}>{s.v}</div><div style={{fontSize:9,color:"#94A3B8"}}>{s.l}</div></div>)}
             </div>
           </div>}
+          </>}
         </>}
 
         {/* ═══ MEMO ═══ */}
         {tab==="memo"&&<>
+          <div style={{display:"flex",gap:4,marginBottom:8}}>
+            <button onClick={()=>setMemoView("active")} style={{flex:1,padding:"7px 0",borderRadius:8,border:memoView==="active"?"2px solid #1E293B":"2px solid #E2E8F0",background:memoView==="active"?"#1E293B":"#fff",color:memoView==="active"?"#fff":"#64748B",fontWeight:700,fontSize:11,cursor:"pointer"}}>📝 진행중 {memos.length}</button>
+            <button onClick={()=>setMemoView("archive")} style={{flex:1,padding:"7px 0",borderRadius:8,border:memoView==="archive"?"2px solid #15803D":"2px solid #E2E8F0",background:memoView==="archive"?"#15803D":"#fff",color:memoView==="archive"?"#fff":"#64748B",fontWeight:700,fontSize:11,cursor:"pointer"}}>📦 완료 보관함 {memoArchive.length}</button>
+          </div>
           <div style={{display:"flex",gap:4,marginBottom:10,flexWrap:"wrap"}}>
             <button onClick={()=>setMemoFilt("all")} style={{padding:"4px 8px",borderRadius:16,border:memoFilt==="all"?"2px solid #1E293B":"2px solid #E2E8F0",background:memoFilt==="all"?"#1E293B":"#fff",color:memoFilt==="all"?"#fff":"#64748B",fontWeight:600,fontSize:10,cursor:"pointer"}}>전체</button>
             {Object.entries(MEMO_T).map(([k,v])=><button key={k} onClick={()=>setMemoFilt(k)} style={{padding:"4px 8px",borderRadius:16,border:memoFilt===k?`2px solid ${v.color}`:"2px solid #E2E8F0",background:memoFilt===k?v.color+"18":"#fff",color:memoFilt===k?v.color:"#64748B",fontWeight:600,fontSize:10,cursor:"pointer"}}>{v.icon} {v.label}</button>)}
           </div>
-          {fMemos.length===0?<div style={{textAlign:"center",padding:"30px 0",color:"#94A3B8"}}><div style={{fontSize:28}}>📝</div><div style={{fontSize:13,marginTop:4}}>메모 없음</div></div>
+          {memoView==="archive"&&<>
+            <input value={archQ} onChange={e=>setArchQ(e.target.value)} placeholder="🔍 보관함 검색 (제목·내용·결정사항·액션·참석자·태그)" style={{width:"100%",padding:"9px 12px",borderRadius:10,border:"2px solid #BBF7D0",fontSize:13,marginBottom:8,boxSizing:"border-box",background:"#F0FDF4"}}/>
+            {fArch.length===0?<div style={{textAlign:"center",padding:"30px 0",color:"#94A3B8"}}><div style={{fontSize:28}}>📦</div><div style={{fontSize:13,marginTop:4}}>{archQ?"검색 결과 없음":"완료된 메모가 없습니다"}</div><div style={{fontSize:11,marginTop:4,color:"#CBD5E1"}}>메모를 열고 ✅ 완료를 누르면 이곳에 보관됩니다</div></div>
+            :<div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {fArch.map(m=>{const mt=MEMO_T[m.type]||MEMO_T.free;const ad=(m.archivedAt||"").substring(0,10);return(
+                <div key={m.id} style={{background:"#F8FAFC",borderRadius:10,padding:"10px 12px",borderLeft:`4px solid ${mt.color}`,boxShadow:"0 1px 3px rgba(0,0,0,0.04)",opacity:0.92}}>
+                  <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:2}}>
+                    <span style={{fontSize:12}}>{mt.icon}</span>
+                    <span style={{fontSize:8,background:mt.color+"20",color:mt.color,borderRadius:3,padding:"0px 4px",fontWeight:700}}>{mt.label}</span>
+                    <span style={{fontWeight:600,fontSize:13,color:"#334155",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.title}</span>
+                    <span style={{fontSize:10,color:"#94A3B8",flexShrink:0}}>{m.date}</span>
+                  </div>
+                  {m.content&&<div style={{fontSize:11,color:"#64748B",marginLeft:18,whiteSpace:"pre-wrap",maxHeight:60,overflow:"hidden"}}>{m.content}</div>}
+                  {m.decisions&&<div style={{fontSize:10,color:"#059669",marginLeft:18,marginTop:1}}>✅ {m.decisions}</div>}
+                  {m.actionItems&&<div style={{fontSize:10,color:"#7C3AED",marginLeft:18,marginTop:1}}>🎯 {m.actionItems}</div>}
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginTop:6,marginLeft:18}}>
+                    <span style={{fontSize:9,color:"#94A3B8",flex:1}}>완료 {ad}</span>
+                    <button onClick={()=>setShareItem({title:m.title,date:m.date,content:`[${mt.label}] ${m.title}\n📅 ${m.date}${m.content?`\n${m.content}`:""}${m.decisions?`\n✅ 결정사항: ${m.decisions}`:""}${m.actionItems?`\n📋 액션: ${m.actionItems}`:""}`})} style={{border:"none",background:"#F1F5F9",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:10,color:"#64748B"}}>📤</button>
+                    <button onClick={()=>unarchiveMe(m.id)} style={{border:"none",background:"#EFF6FF",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:10,fontWeight:700,color:"#2563EB"}}>↩ 복원</button>
+                    <button onClick={()=>{if(confirm(`"${m.title}" 영구 삭제?`))delArchived(m.id);}} style={{border:"none",background:"#FEE2E2",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:10,fontWeight:700,color:"#DC2626"}}>삭제</button>
+                  </div>
+                </div>);})}</div>}
+          </>}
+          {memoView==="active"&&(fMemos.length===0?<div style={{textAlign:"center",padding:"30px 0",color:"#94A3B8"}}><div style={{fontSize:28}}>📝</div><div style={{fontSize:13,marginTop:4}}>메모 없음</div></div>
           :<div style={{display:"flex",flexDirection:"column",gap:6}}>
             {fMemos.map(m=>{const mt=MEMO_T[m.type]||MEMO_T.free;return(
               <div key={m.id} onClick={()=>{setEditMe(m);setShowMF(true);}} style={{background:"#fff",borderRadius:10,padding:"10px 12px",borderLeft:`4px solid ${mt.color}`,boxShadow:"0 1px 3px rgba(0,0,0,0.04)",cursor:"pointer"}}>
@@ -1866,12 +1965,13 @@ function BizPlanner(){
                   <span style={{fontSize:12}}>{mt.icon}</span>
                   <span style={{fontSize:8,background:mt.color+"20",color:mt.color,borderRadius:3,padding:"0px 4px",fontWeight:700}}>{mt.label}</span>
                   <span style={{fontWeight:600,fontSize:13,color:"#1E293B",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",wordBreak:"keep-all"}}>{m.title}</span>
+                  <button onClick={e=>{e.stopPropagation();archiveMe(m.id);}} title="완료 → 보관함" style={{border:"none",background:"#DCFCE7",borderRadius:6,padding:"4px 6px",cursor:"pointer",fontSize:11,flexShrink:0,color:"#15803D",fontWeight:700}}>✓</button>
                   <button onClick={e=>{e.stopPropagation();setShareItem({title:m.title,date:m.date,content:`[${mt.label}] ${m.title}\n📅 ${m.date}${m.content?`\n${m.content}`:""}${m.decisions?`\n✅ 결정사항: ${m.decisions}`:""}${m.actionItems?`\n📋 액션: ${m.actionItems}`:""}`});}} style={{border:"none",background:"#F1F5F9",borderRadius:6,padding:"4px 6px",cursor:"pointer",fontSize:11,flexShrink:0,color:"#64748B"}}>📤</button>
                   <span style={{fontSize:10,color:"#94A3B8",flexShrink:0}}>{m.date}</span>
                 </div>
                 {m.content&&<div style={{fontSize:11,color:"#64748B",marginLeft:18,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{m.content}</div>}
                 {m.decisions&&<div style={{fontSize:10,color:"#059669",marginLeft:18,marginTop:1}}>✅ {m.decisions.substring(0,40)}{m.decisions.length>40?"...":""}</div>}
-              </div>);})}</div>}
+              </div>);})}</div>)}
         </>}
 
         {/* ═══ CONTACTS ═══ */}
@@ -1922,10 +2022,10 @@ function BizPlanner(){
       {/* Modals */}
       {showEF&&<EventForm event={editEv} onSave={saveEv} onClose={()=>{setShowEF(false);setEditEv(null);}} onDelete={delEv} contacts={contacts} selectedDate={selDate} onAddContact={()=>{setShowEF(false);setEditCo(null);setShowCF(true);}}/>}
       {showTF&&<TodoForm todo={editTd} onSave={saveTd} onClose={()=>{setShowTF(false);setEditTd(null);}} onDelete={delTd}/>}
-      {showMF&&<MemoForm memo={editMe} onSave={saveMe} onClose={()=>{setShowMF(false);setEditMe(null);}} onDelete={delMe}/>}
+      {showMF&&<MemoForm memo={editMe} onSave={saveMe} onClose={()=>{setShowMF(false);setEditMe(null);}} onDelete={delMe} onArchive={archiveMe}/>}
       {showCF&&<ContactForm contact={editCo} onSave={saveCo} onClose={()=>{setShowCF(false);setEditCo(null);}} onDelete={delCo}/>}
       {shareItem&&<ShareModal item={shareItem} onClose={()=>setShareItem(null)} contacts={contacts}/>}
-      {showSettings&&<SettingsModal onClose={()=>setShowSettings(false)} events={events} todos={todos} memos={memos} contacts={contacts} routines={routines} savedItems={savedItems} routineItems={routineItems} onRestore={restoreData} doorayStatus={doorayStatus} onDooraySync={()=>syncDooray(events)} user={user} cloudSt={cloudSt} onLogin={login} onLogout={logout} fbReady={fbReady}/>}
+      {showSettings&&<SettingsModal onClose={()=>setShowSettings(false)} events={events} todos={todos} memos={memos} contacts={contacts} routines={routines} savedItems={savedItems} routineItems={routineItems} memoArchive={memoArchive} todoArchive={todoArchive} onRestore={restoreData} doorayStatus={doorayStatus} onDooraySync={()=>syncDooray(events)} user={user} cloudSt={cloudSt} onLogin={login} onLogout={logout} fbReady={fbReady}/>}
 
       <style>{`
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
